@@ -7,6 +7,8 @@ import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBWebCrawler } from './web_crawler.js';
 import { ARBEverydayCatalog } from './everyday_catalog.js';
+import { ARBCanonicalIdentity } from '../extractors/canonical_product.js';
+import { ARBLandedCostCalculator } from '../pricing/landed_cost.js';
 
 export interface DynamicMerchantStore {
   providerId: string;
@@ -82,14 +84,16 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     await ARBCurrencyConverter.refreshRates();
 
     const results: MerchantListing[] = [];
-    const seenTitles = new Set<string>();
+    const seenKeys = new Set<string>();
 
     // 2. Run autonomous live web crawler in background (with 2000ms timeout)
     try {
       const liveListings = await ARBWebCrawler.crawl(payload, 2000);
       for (const item of liveListings) {
-        if (!seenTitles.has(item.productTitle.toLowerCase())) {
-          seenTitles.add(item.productTitle.toLowerCase());
+        const identity = ARBCanonicalIdentity.extractIdentity(item.productTitle, undefined, undefined, item.productUrl);
+        const dedupeKey = `${item.merchantDomain}:${identity.canonicalKey}`;
+        if (!seenKeys.has(dedupeKey)) {
+          seenKeys.add(dedupeKey);
           results.push(item);
         }
       }
@@ -123,12 +127,35 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
 
       // Currency conversion via live forex
       const convertedBase = ARBCurrencyConverter.convert(item.basePrice, item.nativeCurrency, targetCurrency);
-      const convertedShipping = ARBCurrencyConverter.convert(item.shipping, item.nativeCurrency, targetCurrency);
-      const convertedTax = ARBCurrencyConverter.convert(item.tax, item.nativeCurrency, targetCurrency);
+      let convertedShipping = ARBCurrencyConverter.convert(item.shipping, item.nativeCurrency, targetCurrency);
+      let convertedTax = ARBCurrencyConverter.convert(item.tax, item.nativeCurrency, targetCurrency);
 
       // Deal Arbitration (Price Match / Concessions / Promo Vouchers)
       const deal = ARBDealArbitrator.arbitrateDeal(item.domain, convertedBase, targetCurrency);
       const effectivePrice = deal.discountedPrice;
+
+      // Authentic landed cost calculation & pincode verification
+      const landedCalc = ARBLandedCostCalculator.calculate({
+        merchantDomain: item.domain,
+        itemPrice: convertedBase,
+        currency: targetCurrency,
+        productTitle: item.title,
+        category: payload.category,
+        deliveryPostalCode: payload.deliveryPostalCode,
+        discountAmount: deal.successful ? deal.savingsAmount : 0
+      });
+
+      // Filter out if merchant cannot service the requested postal code
+      if (!landedCalc.pincodeServiced) {
+        continue;
+      }
+
+      // If item did not have curated shipping/tax, adopt verified calculated landed cost figures
+      if (item.shipping === 0 && item.tax === 0) {
+        convertedShipping = landedCalc.shippingFee + landedCalc.platformFee + landedCalc.packagingFee;
+        convertedTax = landedCalc.taxes + landedCalc.customsDuty;
+      }
+
       const rawLanded = effectivePrice + convertedShipping + convertedTax;
       const totalLandedCost = targetCurrency.toUpperCase() === 'INR' ? Math.round(rawLanded) : Math.round(rawLanded * 100) / 100;
 
@@ -146,11 +173,16 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         if (!check.satisfied) continue;
       }
 
-      const dedupeKey = `${item.domain}:${item.title.toLowerCase().slice(0, 30)}`;
-      if (seenTitles.has(dedupeKey)) continue;
-      seenTitles.add(dedupeKey);
+      // Canonical product identity deduplication (preserves distinct variants like CL30 vs CL36)
+      const identity = ARBCanonicalIdentity.extractIdentity(item.title, item.brand, item.specs, item.url);
+      const dedupeKey = `${item.domain}:${identity.canonicalKey}`;
+      if (seenKeys.has(dedupeKey)) continue;
+      seenKeys.add(dedupeKey);
 
       const pros = deal.successful ? [...item.pros, deal.transparencyDescription] : [...item.pros];
+      if (landedCalc.pincodeNote) {
+        pros.push(landedCalc.pincodeNote);
+      }
       const cons = [...item.cons];
       if (item.nativeCurrency !== targetCurrency) {
         cons.push(`Forex converted from ${item.basePrice.toLocaleString()} ${item.nativeCurrency} at live exchange rate`);
@@ -407,18 +439,15 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     // CATEGORY 2: Apple Mac Mini (All generations & configurations)
     // =========================================================================
     if (qLower.includes('mac') && qLower.includes('mini')) {
-      const isM4 = qLower.includes('m4') || (!qLower.includes('m2') && !qLower.includes('m1'));
-      const ramReq = mandatorySpecs?.['ram_gb'] || 16;
-
       const macMiniM4Stores = [
         { domain: 'apple.com', name: 'Apple Store Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.apple.com/in/shop/buy-mac/mac-mini' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 58990, ship: 0, url: 'https://www.amazon.in/dp/B0DEXAMPLE_MACMINI' },
-        { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.flipkart.com/apple-mac-mini-m4/p/itma0150' },
-        { domain: 'croma.com', name: 'Croma Electronics', curr: 'INR' as const, price: 59490, ship: 0, url: 'https://www.croma.com/p/apple-mac-mini-m4' },
-        { domain: 'reliancedigital.in', name: 'Reliance Digital', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.reliancedigital.in/item/mac-mini-m4' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 58990, ship: 0, url: 'https://www.amazon.in/s?k=Apple+Mac+mini+M4+16GB' },
+        { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.flipkart.com/search?q=Apple+Mac+mini+M4' },
+        { domain: 'croma.com', name: 'Croma Electronics', curr: 'INR' as const, price: 59490, ship: 0, url: 'https://www.croma.com/search/?text=Apple+Mac+mini+M4' },
+        { domain: 'reliancedigital.in', name: 'Reliance Digital', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.reliancedigital.in/search?q=Apple+Mac+mini+M4' },
         { domain: 'bhphotovideo.com', name: 'B&H Photo Video', curr: 'USD' as const, price: 579, ship: 0, url: 'https://www.bhphotovideo.com/c/search?Ntt=mac+mini+m4' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 599, ship: 0, url: 'https://www.bestbuy.com/site/apple-mac-mini-m4/6591024.p' },
-        { domain: 'microcenter.com', name: 'Micro Center', curr: 'USD' as const, price: 549, ship: 0, url: 'https://www.microcenter.com/product/mac-mini-m4' }
+        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 599, ship: 0, url: 'https://www.bestbuy.com/site/searchpage.jsp?st=apple+mac+mini+m4' },
+        { domain: 'microcenter.com', name: 'Micro Center', curr: 'USD' as const, price: 549, ship: 0, url: 'https://www.microcenter.com/search/search_results.aspx?Ntt=mac+mini+m4' }
       ];
 
       for (const st of macMiniM4Stores) {
@@ -427,7 +456,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           merchantName: st.name,
           domain: st.domain,
           brand: 'Apple',
-          title: `Apple Mac mini Desktop Computer (M4 Chip, ${ramReq}GB Unified Memory, 256GB SSD, Silver)`,
+          title: 'Apple Mac mini Desktop Computer (M4 Chip, 16GB Unified Memory, 256GB SSD, Silver)',
           basePrice: st.price,
           shipping: st.ship,
           tax: 0,
@@ -435,7 +464,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           url: st.url,
           inStock: true,
           warrantyMonths: 12,
-          specs: { ram: `${ramReq}GB Unified`, storage: '256GB SSD', processor: 'Apple M4 10-core CPU', gpu: 'Apple 10-core GPU' },
+          specs: { ram: '16GB Unified', storage: '256GB SSD', processor: 'Apple M4 10-core CPU', gpu: 'Apple 10-core GPU' },
           pros: ['Redesigned 5x5 inch ultra-compact chassis', 'Front-facing USB-C & headphone jack', 'Industry-leading energy efficiency'],
           cons: ['Monitor, keyboard and mouse sold separately'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-APL-MACMINI-M4`
@@ -523,19 +552,16 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     ].some(w => qLower.includes(w));
 
     if (isLaptop) {
-      const ramTarget = mandatorySpecs?.['ram_gb'] || 16;
-      const gpuTarget = mandatorySpecs?.['gpu'] || (qLower.includes('gaming') ? 'RTX 4050' : 'Integrated');
-
       const laptopFleet = [
-        { domain: 'flipkart.com', name: 'Flipkart Official', brand: 'MSI', title: `MSI Thin 15 (${ramTarget}GB RAM, 512GB SSD, RTX 3050, 144Hz FHD)`, price: 51990, ship: 99, curr: 'INR' as const, url: 'https://flipkart.com/item/FLPMSITHIN1', gpu: 'RTX 3050 4GB', display: '15.6" 144Hz FHD' },
-        { domain: 'croma.com', name: 'Croma Electronics', brand: 'HP', title: `HP Victus 15 (${ramTarget}GB DDR5, 512GB Gen4 SSD, AMD Ryzen 5 7535HS, RTX 2050)`, price: 54990, ship: 0, curr: 'INR' as const, url: 'https://croma.com/p/304118', gpu: 'RTX 2050 4GB', display: '15.6" 144Hz FHD' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Asus', title: `ASUS Vivobook 16X (${ramTarget}GB RAM, 512GB NVMe SSD, RTX 3050, 16" WUXGA 120Hz)`, price: 58990, ship: 0, curr: 'INR' as const, url: 'https://amazon.in/dp/B0DEXAMPLE3', gpu: 'RTX 3050 4GB', display: '16" 120Hz WUXGA' },
-        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Acer', title: `Acer Nitro V 15 (${ramTarget}GB DDR5, 512GB SSD, Intel Core i5-13420H, RTX 4050 6GB, 144Hz)`, price: 68990, ship: 0, curr: 'INR' as const, url: 'https://reliancedigital.in/item/493821', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD IPS' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Lenovo', title: `Lenovo LOQ 15 Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, 144Hz FHD)`, price: 69990, ship: 0, curr: 'INR' as const, url: 'https://amazon.in/dp/B0CXEXAMPLE1', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD' },
-        { domain: 'dell.com', name: 'Dell Official Store', brand: 'Dell', title: `Dell G15 Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, 120Hz FHD)`, price: 72990, ship: 0, curr: 'INR' as const, url: 'https://www.dell.com/en-in/shop/gaming-laptops/g15-gaming-laptop', gpu: 'RTX 4050 6GB', display: '15.6" 120Hz FHD' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Asus', title: `ASUS TUF Gaming A15 15.6" FHD 144Hz (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, Ryzen 5 7535HS)`, price: 799, ship: 0, curr: 'USD' as const, url: 'https://bestbuy.com/site/asus-tuf-gaming-a15/6570270.p', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD' },
-        { domain: 'walmart.com', name: 'Walmart US', brand: 'HP', title: `HP Pavilion Plus 14 Laptop (${ramTarget}GB LPDDR5x, 512GB SSD, Intel Core Ultra 5 125H, 2.8K OLED)`, price: 749, ship: 0, curr: 'USD' as const, url: 'https://walmart.com/ip/HP-Pavilion-Plus-14/198231', gpu: 'Intel Arc Graphics', display: '14" 2.8K OLED' },
-        { domain: 'walmart.com', name: 'Walmart US', brand: 'Lenovo', title: `Lenovo Legion 5 15.6" Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4060, AMD Ryzen 7 7735HS)`, price: 899, ship: 0, curr: 'USD' as const, url: 'https://walmart.com/ip/Lenovo-Legion-5-Gaming/291823', gpu: 'RTX 4060 8GB', display: '15.6" 165Hz FHD' }
+        { domain: 'flipkart.com', name: 'Flipkart Official', brand: 'MSI', title: 'MSI Thin 15 (16GB RAM, 512GB SSD, RTX 3050, 144Hz FHD)', price: 51990, ship: 99, curr: 'INR' as const, url: 'https://www.flipkart.com/search?q=MSI+Thin+15+RTX+3050', gpu: 'RTX 3050 4GB', ram: '16GB DDR4', display: '15.6" 144Hz FHD' },
+        { domain: 'croma.com', name: 'Croma Electronics', brand: 'HP', title: 'HP Victus 15 (16GB DDR5, 512GB Gen4 SSD, AMD Ryzen 5 7535HS, RTX 2050)', price: 54990, ship: 0, curr: 'INR' as const, url: 'https://www.croma.com/search/?text=HP+Victus+15+Ryzen+5', gpu: 'RTX 2050 4GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Asus', title: 'ASUS Vivobook 16X (16GB RAM, 512GB NVMe SSD, RTX 3050, 16" WUXGA 120Hz)', price: 58990, ship: 0, curr: 'INR' as const, url: 'https://www.amazon.in/s?k=ASUS+Vivobook+16X+RTX+3050', gpu: 'RTX 3050 4GB', ram: '16GB DDR4', display: '16" 120Hz WUXGA' },
+        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Acer', title: 'Acer Nitro V 15 (16GB DDR5, 512GB SSD, Intel Core i5-13420H, RTX 4050 6GB, 144Hz)', price: 68990, ship: 0, curr: 'INR' as const, url: 'https://www.reliancedigital.in/search?q=Acer+Nitro+V+15', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD IPS' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Lenovo', title: 'Lenovo LOQ 15 Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4050, 144Hz FHD)', price: 69990, ship: 0, curr: 'INR' as const, url: 'https://www.amazon.in/s?k=Lenovo+LOQ+15+RTX+4050', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'dell.com', name: 'Dell Official Store', brand: 'Dell', title: 'Dell G15 Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4050, 120Hz FHD)', price: 72990, ship: 0, curr: 'INR' as const, url: 'https://www.dell.com/en-in/shop/gaming-laptops/g15-gaming-laptop', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 120Hz FHD' },
+        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Asus', title: 'ASUS TUF Gaming A15 15.6" FHD 144Hz (16GB DDR5, 512GB SSD, RTX 4050, Ryzen 5 7535HS)', price: 799, ship: 0, curr: 'USD' as const, url: 'https://www.bestbuy.com/site/searchpage.jsp?st=asus+tuf+gaming+a15', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'walmart.com', name: 'Walmart US', brand: 'HP', title: 'HP Pavilion Plus 14 Laptop (16GB LPDDR5x, 512GB SSD, Intel Core Ultra 5 125H, 2.8K OLED)', price: 749, ship: 0, curr: 'USD' as const, url: 'https://www.walmart.com/search?q=HP+Pavilion+Plus+14', gpu: 'Intel Arc Graphics', ram: '16GB LPDDR5x', display: '14" 2.8K OLED' },
+        { domain: 'walmart.com', name: 'Walmart US', brand: 'Lenovo', title: 'Lenovo Legion 5 15.6" Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4060, AMD Ryzen 7 7735HS)', price: 899, ship: 0, curr: 'USD' as const, url: 'https://www.walmart.com/search?q=Lenovo+Legion+5', gpu: 'RTX 4060 8GB', ram: '16GB DDR5', display: '15.6" 165Hz FHD' }
       ];
 
       for (const lap of laptopFleet) {
@@ -552,7 +578,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           url: lap.url,
           inStock: true,
           warrantyMonths: 12,
-          specs: { ram: `${ramTarget}GB DDR5`, gpu: lap.gpu, display: lap.display },
+          specs: { ram: lap.ram, gpu: lap.gpu, display: lap.display },
           pros: ['High performance modern processor architecture', 'Official manufacturer warranty'],
           cons: [],
           sku: `${lap.domain.split('.')[0].toUpperCase()}-${lap.brand.toUpperCase()}-${Math.abs(lap.title.length * 31).toString(36).toUpperCase()}`

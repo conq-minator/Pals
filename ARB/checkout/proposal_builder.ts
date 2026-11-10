@@ -3,7 +3,8 @@ import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 
 export class ARBProposalBuilder {
   /**
-   * Constructs an immutable, validated PurchaseProposal ready for user review & cryptographic approval.
+   * Constructs an immutable, validated PurchaseProposal ready for user review, cryptographic approval,
+   * and friction-free handoff to PULSE (Flaw 19).
    */
   public static buildProposal(
     listing: MerchantListing,
@@ -11,6 +12,7 @@ export class ARBProposalBuilder {
     options?: {
       selectedColor?: string;
       selectedSize?: string;
+      destinationPincode?: string;
       customSpecs?: Record<string, string>;
     }
   ): PurchaseProposal {
@@ -29,6 +31,51 @@ export class ARBProposalBuilder {
     const shippingFee = listing.estimatedShipping;
     const taxes = listing.estimatedTax;
     const totalPayable = basePrice - discountApplied + shippingFee + taxes;
+
+    const supportedPaymentMethods = [
+      'PAYPAL',
+      'CREDIT_CARD',
+      'UPI',
+      'NET_BANKING'
+    ];
+
+    const prefilledShipping = {
+      productSku: listing.sku,
+      merchantDomain: listing.merchantDomain,
+      destinationPincode: options?.destinationPincode || '560001',
+      directCheckoutUrl: listing.productUrl
+    };
+
+    const pulseHandoffPayload = {
+      action: 'PULSE:payment.execute',
+      proposalId,
+      orderReference: `ORD-${listing.sku}-${Date.now().toString(36).toUpperCase()}`,
+      merchant: {
+        name: listing.merchantName,
+        domain: listing.merchantDomain,
+        checkoutUrl: listing.productUrl
+      },
+      payment: {
+        amount: totalPayable,
+        currency: listing.currency,
+        preferredRail: 'PAYPAL'
+      },
+      items: [
+        {
+          sku: listing.sku,
+          title: listing.productTitle,
+          quantity: 1,
+          unitPrice: basePrice - discountApplied
+        }
+      ],
+      breakdown: {
+        itemTotal: basePrice - discountApplied,
+        shipping: shippingFee,
+        tax: taxes,
+        total: totalPayable
+      },
+      expiresAt
+    };
 
     const proposal: PurchaseProposal = {
       proposalId,
@@ -62,6 +109,9 @@ export class ARBProposalBuilder {
         description: deal.transparencyDescription
       },
       merchantTrustScore: listing.trustScore,
+      supportedPaymentMethods,
+      prefilledShipping,
+      pulseHandoffPayload,
       expiresAt
     };
 

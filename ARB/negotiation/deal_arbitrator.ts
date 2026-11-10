@@ -127,75 +127,24 @@ export class ARBDealArbitrator {
     const cleanDomain = merchantDomain.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
 
     // ========================================================================
-    // CHANNEL 1: True Dynamic Merchant Negotiation & Price Matching
+    // CHANNEL 1: Merchant Price Matching (When Verified Competitor Proof Exists)
     // ========================================================================
     const dynamicConfig = this.dynamicNegotiationDestinations[cleanDomain];
 
-    if (dynamicConfig && basePrice >= 30000) {
-      if (dynamicConfig.channel === 'PRICE_MATCH_DESK' && competitorProof && competitorProof.competitorPrice < basePrice) {
-        // Price-Match Guarantee: Concession matching lower verified price
-        const priceDiff = basePrice - competitorProof.competitorPrice;
-        const matchedPrice = competitorProof.competitorPrice;
-        const transcript: NegotiationMessage[] = [
-          {
-            speaker: 'ARB_AGENT',
-            message: `Submitting Price-Match request: Product advertised at ${basePrice} ${currency} on ${cleanDomain}. Verifiable active competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Requesting price adjustment.`,
-            timestamp: new Date().toISOString()
-          },
-          {
-            speaker: 'MERCHANT_BOT',
-            message: `Automated Price-Match Engine verified competitor URL. Authorized price match discount of ${priceDiff} ${currency}. New approved checkout total: ${matchedPrice} ${currency}.`,
-            timestamp: new Date(Date.now() + 1500).toISOString()
-          }
-        ];
+    if (dynamicConfig && dynamicConfig.channel === 'PRICE_MATCH_DESK' && competitorProof && competitorProof.competitorPrice < basePrice) {
+      const priceDiff = basePrice - competitorProof.competitorPrice;
+      const matchedPrice = competitorProof.competitorPrice;
 
-        return {
-          attempted: true,
-          successful: true,
-          dealType: 'PRICE_MATCH_CONCESSION',
-          originalPrice: basePrice,
-          discountedPrice: matchedPrice,
-          savingsAmount: priceDiff,
-          currency,
-          transparencyDescription: `Price-Match Guarantee invoked with ${cleanDomain}: Matched lower competitor price from ${competitorProof.competitorName}, securing direct concession of ${priceDiff} ${currency}.`,
-          negotiationTranscript: transcript
-        };
-      }
-
-      if (dynamicConfig.channel === 'LIVE_CHATBOT' || dynamicConfig.channel === 'MAKE_OFFER_API') {
-        // Live bot offer exchange
-        const savings = Math.round(basePrice * dynamicConfig.maxConcessionPct);
-        const counterPrice = basePrice - savings;
-        const transcript: NegotiationMessage[] = [
-          {
-            speaker: 'ARB_AGENT',
-            message: `Inquiring on behalf of pre-approved PayPal buyer: Product sticker is ${basePrice} ${currency}. Client budget is constrained. Can you offer an instant purchase concession for immediate checkout?`,
-            timestamp: new Date().toISOString()
-          },
-          {
-            speaker: 'MERCHANT_BOT',
-            message: `Hello! I can issue a custom, single-use automated concession voucher for this active cart session. Approved counter-offer: ${counterPrice} ${currency} (${savings} ${currency} off).`,
-            timestamp: new Date(Date.now() + 2000).toISOString()
-          },
-          {
-            speaker: 'ARB_AGENT',
-            message: `Offer accepted. Preparing purchase proposal at negotiated rate of ${counterPrice} ${currency}.`,
-            timestamp: new Date(Date.now() + 3000).toISOString()
-          }
-        ];
-
-        return {
-          attempted: true,
-          successful: true,
-          dealType: 'DYNAMIC_NEGOTIATED_DEAL',
-          originalPrice: basePrice,
-          discountedPrice: counterPrice,
-          savingsAmount: savings,
-          currency,
-          transparencyDescription: `Successfully conducted dynamic negotiation with ${cleanDomain} automated sales desk: Secured custom single-use concession of ${savings} ${currency} (Official price cut, not a public code).`,
-          negotiationTranscript: transcript
-        };
-      }
+      return {
+        attempted: true,
+        successful: true,
+        dealType: 'PRICE_MATCH_CONCESSION',
+        originalPrice: basePrice,
+        discountedPrice: matchedPrice,
+        savingsAmount: priceDiff,
+        currency,
+        transparencyDescription: `Price-Match Guarantee identified on ${cleanDomain}: Lower verified competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Potential savings: ${priceDiff} ${currency}.`
+      };
     }
 
     // ========================================================================
