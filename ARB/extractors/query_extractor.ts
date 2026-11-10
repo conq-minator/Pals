@@ -53,7 +53,7 @@ export class ARBQueryExtractor {
   /**
    * Extracts structured query entities from natural language text.
    */
-  public static extractFromText(prompt: string, defaultBudget: number = 75000): ExtractedRequirements {
+  public static extractFromText(prompt: string, defaultBudget: number = 200000): ExtractedRequirements {
     const text = prompt.trim();
     const lower = text.toLowerCase();
 
@@ -116,12 +116,17 @@ export class ARBQueryExtractor {
       mandatorySpecs['ram_gb'] = parseInt(ramMatch[1], 10);
     }
 
-    // Storage extraction (e.g. "512gb ssd", "1tb storage")
-    const storageMatch = lower.match(/([0-9]{1,3})\s*(gb|tb)\s*(?:ssd|storage|hdd|nvme)?/i);
+    // Storage extraction (must have explicit storage indicator like ssd, storage, hdd, nvme, or tb)
+    const storageMatch = lower.match(/([0-9]{1,4})\s*(tb)\s*(?:ssd|storage|hdd|nvme)?/i) ||
+                         lower.match(/([0-9]{1,4})\s*(gb)\s*(?:ssd|storage|hdd|nvme|rom)/i) ||
+                         lower.match(/(?:ssd|storage|hdd|nvme)\s*(?:of\s*)?([0-9]{1,4})\s*(gb|tb)/i);
     if (storageMatch) {
-      const unit = storageMatch[2].toUpperCase();
-      const val = parseInt(storageMatch[1], 10);
-      mandatorySpecs['storage'] = unit === 'TB' ? `${val * 1024}GB` : `${val}GB`;
+      const unit = (storageMatch[2] || storageMatch[1]).toUpperCase();
+      const numStr = (!isNaN(parseInt(storageMatch[1], 10))) ? storageMatch[1] : storageMatch[2];
+      const val = parseInt(numStr, 10);
+      if (!isNaN(val)) {
+        mandatorySpecs['storage'] = unit.includes('TB') ? `${val * 1024}GB` : `${val}GB`;
+      }
     }
 
     // GPU / Graphics extraction

@@ -32,6 +32,156 @@ export class ARBTrustScorer {
       sslValid: true,
       domainAgeYears: 12
     },
+    'swiggy.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 120000,
+      sslValid: true,
+      domainAgeYears: 10
+    },
+    'zomato.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 150000,
+      sslValid: true,
+      domainAgeYears: 15
+    },
+    'blinkit.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 1,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 90000,
+      sslValid: true,
+      domainAgeYears: 11
+    },
+    'zeptonow.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 1,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 60000,
+      sslValid: true,
+      domainAgeYears: 4
+    },
+    'eatclub.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 35000,
+      sslValid: true,
+      domainAgeYears: 8
+    },
+    'doordash.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 200000,
+      sslValid: true,
+      domainAgeYears: 11
+    },
+    'ubereats.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 180000,
+      sslValid: true,
+      domainAgeYears: 9
+    },
+    'instacart.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 1,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 100000,
+      sslValid: true,
+      domainAgeYears: 12
+    },
+    'apollopharmacy.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.7,
+      reviewVolume: 40000,
+      sslValid: true,
+      domainAgeYears: 20
+    },
+    '1mg.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 50000,
+      sslValid: true,
+      domainAgeYears: 9
+    },
+    'bigbasket.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 60000,
+      sslValid: true,
+      domainAgeYears: 13
+    },
+    'jiomart.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 40000,
+      sslValid: true,
+      domainAgeYears: 8
+    },
+    'myntra.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 14,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 70000,
+      sslValid: true,
+      domainAgeYears: 15
+    },
+    'nykaa.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 15,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 55000,
+      sslValid: true,
+      domainAgeYears: 12
+    },
+    'iherb.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.7,
+      reviewVolume: 80000,
+      sslValid: true,
+      domainAgeYears: 25
+    },
     'croma.com': {
       isAuthorizedDealer: true,
       hasPhysicalStores: true,
@@ -129,6 +279,116 @@ export class ARBTrustScorer {
       supportsSecurePayments: true,
       averageRating: 4.8,
       reviewVolume: 40000,
+      sslValid: true,
+      domainAgeYears: 29
+    },
+    'shopatsc.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 14,
+      supportsSecurePayments: true,
+      averageRating: 4.7,
+      reviewVolume: 15000,
+      sslValid: true,
+      domainAgeYears: 12
+    },
+    'bhphotovideo.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.8,
+      reviewVolume: 75000,
+      sslValid: true,
+      domainAgeYears: 30
+    },
+    'microcenter.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 15,
+      supportsSecurePayments: true,
+      averageRating: 4.7,
+      reviewVolume: 45000,
+      sslValid: true,
+      domainAgeYears: 26
+    },
+    'newegg.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 65000,
+      sslValid: true,
+      domainAgeYears: 23
+    },
+    'target.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 90000,
+      sslValid: true,
+      domainAgeYears: 25
+    },
+    'vijaysales.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.3,
+      reviewVolume: 8000,
+      sslValid: true,
+      domainAgeYears: 16
+    },
+    'keychron.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 5000,
+      sslValid: true,
+      domainAgeYears: 5
+    },
+    'meckeys.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 3500,
+      sslValid: true,
+      domainAgeYears: 6
+    },
+    'genesispc.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 2500,
+      sslValid: true,
+      domainAgeYears: 4
+    },
+    'asus.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 14,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 35000,
+      sslValid: true,
+      domainAgeYears: 27
+    },
+    'hp.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 14,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 50000,
       sslValid: true,
       domainAgeYears: 29
     }

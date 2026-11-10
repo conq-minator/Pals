@@ -66,6 +66,38 @@ export class ARBDealArbitrator {
     ],
     'walmart.com': [
       { code: 'WALMART10', fixedDiscount: 10, minSpend: 50, description: '$10 Off Welcome Promo' }
+    ],
+    'bhphotovideo.com': [
+      { code: 'BHEDU', discountPercent: 0.04, minSpend: 200, description: 'B&H EduAdvantage Instant Concession' }
+    ],
+    'microcenter.com': [
+      { code: 'MCNEW25', fixedDiscount: 25, minSpend: 100, description: 'Micro Center New Customer Hardware Coupon' }
+    ],
+    'keychron.in': [
+      { code: 'KEYCHRON5', discountPercent: 0.05, minSpend: 5000, description: 'Keychron Community 5% Promo' }
+    ],
+    'swiggy.com': [
+      { code: 'SWIGGY75', fixedDiscount: 75, minSpend: 299, description: 'Swiggy Gourmet Super Saver Discount' },
+      { code: 'SWIGGY20', discountPercent: 0.20, minSpend: 199, description: '20% Dining & Delivery Promo' }
+    ],
+    'zomato.com': [
+      { code: 'ZOMATOPRO', fixedDiscount: 50, minSpend: 249, description: 'Zomato Gold Club Concession' },
+      { code: 'CRAVING15', discountPercent: 0.15, minSpend: 199, description: '15% Instant Food Voucher' }
+    ],
+    'blinkit.com': [
+      { code: 'BLINKIT50', fixedDiscount: 50, minSpend: 299, description: 'Blinkit Instant Cart Voucher' }
+    ],
+    'zeptonow.com': [
+      { code: 'ZEPTO30', fixedDiscount: 30, minSpend: 199, description: 'Zepto 10-Min Flash Concession' }
+    ],
+    'eatclub.com': [
+      { code: 'EATCLUB100', fixedDiscount: 100, minSpend: 299, description: 'EatClub Direct Chef Savings Promo' }
+    ],
+    'doordash.com': [
+      { code: 'DASHPASS5', fixedDiscount: 5, minSpend: 15, description: '$5 DashPass Delivery Concession' }
+    ],
+    'ubereats.com': [
+      { code: 'EATS15', discountPercent: 0.15, minSpend: 20, description: '15% UberEats Culinary Concession' }
     ]
   };
 
@@ -76,7 +108,11 @@ export class ARBDealArbitrator {
     'dell.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.06 },
     'lenovo.com': { channel: 'LIVE_CHATBOT', maxConcessionPct: 0.05 },
     'croma.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.03 },
-    'bestbuy.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.05 }
+    'bestbuy.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.05 },
+    'bhphotovideo.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.04 },
+    'microcenter.com': { channel: 'PRICE_MATCH_DESK', maxConcessionPct: 0.05 },
+    'swiggy.com': { channel: 'LIVE_CHATBOT', maxConcessionPct: 0.10 },
+    'zomato.com': { channel: 'LIVE_CHATBOT', maxConcessionPct: 0.10 }
   };
 
   /**
