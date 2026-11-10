@@ -44,3 +44,16 @@ PULSE operates downstream of the Orchestrator, Deterministic Policy Validation, 
 - [MEMORY.md](MEMORY.md) — Module changelog, ADRs, and active development state.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — Strict boundary definitions, safety checks, and token invariants.
 
+## 5. Run PULSE
+
+```bash
+# Start the PULSE API server
+npm run pulse
+
+# Run the test payment client (requires server running)
+npm run pulse:test
+
+# Verify type correctness
+npm run typecheck
+```
+

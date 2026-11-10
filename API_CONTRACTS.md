@@ -333,7 +333,40 @@ export interface PulsePaymentResponse {
 }
 ```
 
-### 6.2 PULSE Webhook Ingestion Payload
+### 6.3 Payment Action Contracts
+
+### 6.3.1 payment.create_order
+Submitted by Orchestrator to PULSE to create a PayPal order after policy clearance.
+
+```typescript
+export interface PaymentCreateOrderAction {
+  action: 'payment.create_order';
+  payload: PulsePaymentRequest;
+}
+export type PaymentCreateOrderResponse = PulsePaymentResponse;
+```
+
+### 6.3.2 payment.capture
+Submitted by Orchestrator to PULSE to capture a created PayPal order after buyer approval and amount verification.
+
+```typescript
+export interface PaymentCaptureAction {
+  action: 'payment.capture';
+  payload: { paypalOrderId: string };
+}
+export type PaymentCaptureResponse = PulsePaymentResponse;
+```
+
+### 6.3.3 payment.refund
+Submitted by Orchestrator to PULSE to refund a captured payment.
+
+```typescript
+export interface PaymentRefundAction {
+  action: 'payment.refund';
+  payload: { paypalOrderId: string; reason?: string };
+}
+export type PaymentRefundResponse = StoredTransaction;
+```
 Standard PayPal Webhook Event format ingested by PULSE.
 
 ```typescript

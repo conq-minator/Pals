@@ -11,6 +11,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "types": ["node"],
     "outDir": "./dist",
     "rootDir": "./"
   },
@@ -20,7 +21,8 @@
     "ARB/**/*",
     "PULSE/**/*",
     "defender/**/*",
-    "tests/**/*"
+    "tests/**/*",
+    "calls/**/*"
   ],
   "exclude": [
     "node_modules",
