@@ -46,3 +46,11 @@
 - [ ] Connect Playwright live crawler for active web scraping in Phase 2.
 - [ ] Implement SOCKS5 proxy egress isolation in `ARB/scrapers/egress.ts` for Phase 2.
 
+- [x] Everyday catalog for food delivery, quick-commerce groceries, pharmacy and PC memory (`ARB/providers/everyday_catalog.ts`), with regression tests in `tests/arb_everyday.test.ts`.
+- [ ] Replace indicative catalog prices with live merchant/affiliate data sources (Amazon PA-API, Flipkart Affiliate, SerpAPI-style shopping search).
+- [ ] Remove or verify voucher codes in `deal_arbitrator.ts` — the current index is illustrative, not verified against merchants.
+
+### ADR-ARB-003: No Fabricated Listings
+- **Status:** **APPROVED**
+- **Decision:** When ARB has no catalog coverage and the live crawl returns nothing, it returns zero listings plus merchant search links, instead of synthesizing generic listings with estimated prices.
+- **Rationale:** The previous universal fallback produced items like "Bandage (Authentic Retail Edition)" for ₹2,349 that could flow into a PurchaseProposal and a real payment.

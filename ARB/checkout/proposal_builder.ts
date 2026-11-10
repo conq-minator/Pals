@@ -42,8 +42,8 @@ export class ARBProposalBuilder {
         color: options?.selectedColor,
         size: options?.selectedSize,
         specs: {
-          warranty: `${listing.warrantyPeriodMonths || 12} Months Manufacturer Coverage`,
-          delivery: shippingFee === 0 ? 'Free Standard Delivery' : `Standard Delivery (${shippingFee} ${listing.currency})`,
+          ...(listing.warrantyPeriodMonths ? { warranty: `${listing.warrantyPeriodMonths} Months Manufacturer Coverage` } : {}),
+          delivery: shippingFee === 0 ? 'Free Delivery' : `Delivery & platform fees (${shippingFee} ${listing.currency})`,
           ...options?.customSpecs
         }
       },

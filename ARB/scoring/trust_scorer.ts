@@ -32,6 +32,116 @@ export class ARBTrustScorer {
       sslValid: true,
       domainAgeYears: 12
     },
+    'dominos.co.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.3,
+      reviewVolume: 200000,
+      sslValid: true,
+      domainAgeYears: 20
+    },
+    'pizzahut.co.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.2,
+      reviewVolume: 90000,
+      sslValid: true,
+      domainAgeYears: 18
+    },
+    'dominos.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 0,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 300000,
+      sslValid: true,
+      domainAgeYears: 28
+    },
+    'pharmeasy.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 60000,
+      sslValid: true,
+      domainAgeYears: 9
+    },
+    'netmeds.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 40000,
+      sslValid: true,
+      domainAgeYears: 10
+    },
+    'cvs.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 90000,
+      sslValid: true,
+      domainAgeYears: 28
+    },
+    'walgreens.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 85000,
+      sslValid: true,
+      domainAgeYears: 28
+    },
+    'amazon.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: false,
+      returnWindowDays: 30,
+      supportsSecurePayments: true,
+      averageRating: 4.6,
+      reviewVolume: 500000,
+      sslValid: true,
+      domainAgeYears: 29
+    },
+    'mdcomputers.in': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 20000,
+      sslValid: true,
+      domainAgeYears: 12
+    },
+    'primeabgb.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.5,
+      reviewVolume: 15000,
+      sslValid: true,
+      domainAgeYears: 12
+    },
+    'vedantcomputers.com': {
+      isAuthorizedDealer: true,
+      hasPhysicalStores: true,
+      returnWindowDays: 7,
+      supportsSecurePayments: true,
+      averageRating: 4.4,
+      reviewVolume: 10000,
+      sslValid: true,
+      domainAgeYears: 15
+    },
     'swiggy.com': {
       isAuthorizedDealer: true,
       hasPhysicalStores: false,

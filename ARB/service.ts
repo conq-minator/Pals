@@ -14,6 +14,7 @@ import { ARBDealArbitrator } from './negotiation/deal_arbitrator.js';
 import { MultiMerchantCatalogProvider } from './providers/catalog_provider.js';
 import { IMerchantProvider } from './providers/base_provider.js';
 import { ARBProposalBuilder } from './checkout/proposal_builder.js';
+import { ARBQueryMatcher } from './extractors/query_matcher.js';
 
 export interface ArbServiceConfig {
   providers?: IMerchantProvider[];
@@ -28,6 +29,7 @@ export interface ArbServiceConfig {
 export class ArbService {
   private logger = new PalsLogger('ARB');
   private providers: IMerchantProvider[];
+  private lastQuery = '';
 
   constructor(
     config?: ArbServiceConfig,
@@ -82,6 +84,7 @@ export class ArbService {
     }
 
     const { budgetCeiling, currency, productQuery, mandatorySpecifications, minMerchantTrustScore } = payload;
+    this.lastQuery = productQuery;
 
     // 2. Filter providers if specific target merchants are requested
     let activeProviders = this.providers;
@@ -187,12 +190,16 @@ export class ArbService {
       return [
         `### Market Research Diagnostic: No Qualifying Deals Found`,
         ``,
-        `> **Scanned:** ${totalScanned} listings across ${this.providers.length} verified national merchants.`,
+        `> **Scanned:** ${totalScanned} listings.`,
         `> **Budget Limit:** ${budgetCeiling.toLocaleString()} ${currency}`,
         ``,
         `**Why no listings qualified:**`,
-        `- Every scanned item either exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory hardware specifications${specDetails}.`,
-        `- **Guidance:** Consider adjusting your budget ceiling or relaxing specific hardware requirements (such as GPU or minimum RAM) to view entry-level alternatives.`
+        totalScanned === 0
+          ? `- ARB has no verified merchant data for this item yet, and live web search returned no priced listings. ARB does not invent listings or prices.`
+          : `- Every scanned item either exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory specifications${specDetails}.`,
+        totalScanned === 0
+          ? `- **Search directly:** [amazon.in](https://www.amazon.in/s?k=${encodeURIComponent(ARBQueryMatcher.extractCoreTokens(this.lastQuery).join(' '))}) · [flipkart.com](https://www.flipkart.com/search?q=${encodeURIComponent(ARBQueryMatcher.extractCoreTokens(this.lastQuery).join(' '))})`
+          : `- **Guidance:** Consider raising your budget ceiling or relaxing specific requirements to view entry-level alternatives.`
       ].join('\n');
     }
 
@@ -205,9 +212,9 @@ export class ArbService {
       `**Top Recommendation:** **[${top.productTitle}](${top.productUrl})**`,
       `- **Merchant Source:** [${top.merchantName}](https://${top.merchantDomain})`,
       `- **Direct Product Link:** [${top.productUrl}](${top.productUrl})`,
-      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${savingsFromBudget > 0 ? `*(₹${savingsFromBudget.toLocaleString()} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
+      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${savingsFromBudget > 0 ? `*(${savingsFromBudget.toLocaleString()} ${currency} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
       `- **Merchant Trust Score:** **${top.trustScore}/100** (${top.trustScore >= 90 ? 'Exemplary' : 'Trusted'})`,
-      `- **Warranty:** ${top.warrantyPeriodMonths || 12} Months Official Coverage`,
+      top.warrantyPeriodMonths ? `- **Warranty:** ${top.warrantyPeriodMonths} Months Official Coverage` : `- **${top.pros.find(p => /^(delivery eta|estimated delivery):/i.test(p)) || 'Delivery: see merchant page'}**`,
       ``,
       `#### Side-by-Side Comparison Matrix`,
       ``,
@@ -226,7 +233,7 @@ export class ArbService {
       `#### Why Option #1 Was Selected as the Winner:`,
       `1. **Landed Cost Efficiency:** It offers the lowest out-of-the-door price (${top.totalLandedCost.toLocaleString()} ${currency}) inclusive of all taxes, merchant surcharges, and delivery fees.`,
       `2. **Merchant Credibility:** Backed by verified authorized status on **${top.merchantDomain}** with verified return policies and buyer-protected payment support.`,
-      `3. **Hardware Compliance:** Satisfies 100% of your requested hardware parameters without gray-market components.`,
+      `3. **Requirement Match:** Satisfies all of your stated requirements${mandatorySpecs && Object.keys(mandatorySpecs).length > 0 ? ` (${Object.entries(mandatorySpecs).filter(([k]) => k !== 'target_merchants').map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.`,
       ``,
       `#### Next Steps:`,
       `To proceed with **Option #1**, reply with: *"Prepare checkout for option 1"* and I will formulate the Purchase Proposal with an interactive approval card.`

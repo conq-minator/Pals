@@ -1,4 +1,5 @@
 import { ARBResearchPayload } from '../../shared/types/index.js';
+import { ARBEverydayCatalog } from '../providers/everyday_catalog.js';
 
 export interface ExtractedRequirements {
   productQuery: string;
@@ -47,7 +48,27 @@ export class ARBQueryExtractor {
     'best buy': 'bestbuy.com',
     'apple': 'apple.com',
     'dell': 'dell.com',
-    'lenovo': 'lenovo.com'
+    'lenovo': 'lenovo.com',
+    'swiggy': 'swiggy.com',
+    'instamart': 'swiggy.com',
+    'zomato': 'zomato.com',
+    'blinkit': 'blinkit.com',
+    'zepto': 'zeptonow.com',
+    'bigbasket': 'bigbasket.com',
+    'jiomart': 'jiomart.com',
+    'dominos': 'dominos',
+    'pizza hut': 'pizzahut',
+    'apollo': 'apollopharmacy.in',
+    '1mg': '1mg.com',
+    'pharmeasy': 'pharmeasy.in',
+    'netmeds': 'netmeds.com',
+    'md computers': 'mdcomputers.in',
+    'mdcomputers': 'mdcomputers.in',
+    'primeabgb': 'primeabgb.com',
+    'newegg': 'newegg.com',
+    'doordash': 'doordash.com',
+    'uber eats': 'ubereats.com',
+    'ubereats': 'ubereats.com'
   };
 
   /**
@@ -97,7 +118,10 @@ export class ARBQueryExtractor {
 
     // 2. Extract Category
     let category = 'general';
-    if (lower.includes('laptop') || lower.includes('notebook') || lower.includes('macbook')) {
+    const everydayVertical = ARBEverydayCatalog.detectVertical(text);
+    if (everydayVertical) {
+      category = everydayVertical;
+    } else if (lower.includes('laptop') || lower.includes('notebook') || lower.includes('macbook')) {
       category = 'laptops';
     } else if (lower.includes('phone') || lower.includes('mobile') || lower.includes('smartphone')) {
       category = 'smartphones';
@@ -182,6 +206,7 @@ export class ARBQueryExtractor {
         (lower.includes(`between`) && lower.includes(key)) ||
         (lower.includes(`only`) && lower.includes(key)) ||
         (lower.includes(`compare`) && lower.includes(key)) ||
+        new RegExp(`\\b(?:from|on|at|via|using)\\s+${key}\\b`, 'i').test(lower) ||
         (merchantContext.includes(key) && (lower.includes('amazon') || lower.includes('flipkart') || lower.includes('walmart') || lower.includes('croma')))
       ) {
         if (!targetMerchants.includes(domain)) {

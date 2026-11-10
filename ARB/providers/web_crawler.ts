@@ -21,7 +21,11 @@ export class ARBWebCrawler {
    * Executes live crawl across target merchants for the user query.
    */
   public static async crawl(payload: ARBResearchPayload, timeoutMs: number = 3000): Promise<MerchantListing[]> {
-    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, targetMerchants } = payload;
+    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications } = payload;
+    const rawTargets = mandatorySpecifications?.['target_merchants'];
+    const targetMerchants: string[] = typeof rawTargets === 'string'
+      ? rawTargets.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
     
     // Refresh forex exchange rates in background
     await ARBCurrencyConverter.refreshRates();
@@ -192,7 +196,7 @@ export class ARBWebCrawler {
             productTitle: cleanTitle,
             productUrl: directUrl,
             sku,
-            itemPrice: effectiveBasePrice,
+            itemPrice: convertedPrice,
             estimatedShipping: shipping,
             estimatedTax: tax,
             totalLandedCost,

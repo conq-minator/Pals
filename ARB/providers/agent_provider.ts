@@ -6,6 +6,7 @@ import { ARBCurrencyConverter } from '../currency/forex_converter.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBWebCrawler } from './web_crawler.js';
+import { ARBEverydayCatalog } from './everyday_catalog.js';
 
 export interface DynamicMerchantStore {
   providerId: string;
@@ -71,7 +72,11 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
    * Main Autonomous Research & Arbitration execution.
    */
   public async search(payload: ARBResearchPayload): Promise<MerchantListing[]> {
-    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, targetMerchants, minMerchantTrustScore } = payload;
+    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, minMerchantTrustScore } = payload;
+    const rawTargets = mandatorySpecifications?.['target_merchants'];
+    const targetMerchants: string[] = typeof rawTargets === 'string'
+      ? rawTargets.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
     
     // 1. Ensure live forex rates are available
     await ARBCurrencyConverter.refreshRates();
@@ -108,6 +113,9 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       const intent = ARBQueryMatcher.matchesIntent(productQuery, item.title, item.brand);
       if (!intent.matches) continue;
 
+      // Targeted merchant check (e.g. "pizza from dominos", "milk on blinkit")
+      if (targetMerchants.length > 0 && !targetMerchants.some(t => item.domain.toLowerCase().includes(t))) continue;
+
       // Brand exclusion check
       if (excludedBrands && excludedBrands.some(eb => eb.toLowerCase() === item.brand.toLowerCase())) {
         continue;
@@ -121,7 +129,8 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       // Deal Arbitration (Price Match / Concessions / Promo Vouchers)
       const deal = ARBDealArbitrator.arbitrateDeal(item.domain, convertedBase, targetCurrency);
       const effectivePrice = deal.discountedPrice;
-      const totalLandedCost = effectivePrice + convertedShipping + convertedTax;
+      const rawLanded = effectivePrice + convertedShipping + convertedTax;
+      const totalLandedCost = targetCurrency.toUpperCase() === 'INR' ? Math.round(rawLanded) : Math.round(rawLanded * 100) / 100;
 
       // Hard budget ceiling check
       if (totalLandedCost > budgetCeiling) continue;
@@ -154,7 +163,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         productTitle: item.title,
         productUrl: item.url,
         sku: item.sku,
-        itemPrice: effectivePrice,
+        itemPrice: convertedBase,
         estimatedShipping: convertedShipping,
         estimatedTax: convertedTax,
         totalLandedCost,
@@ -200,6 +209,37 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
   }> {
     const qLower = query.toLowerCase().trim();
     const items: any[] = [];
+
+    // =========================================================================
+    // CATEGORY 00: Everyday catalog (food delivery, quick-commerce groceries,
+    // pharmacy / first aid, PC memory). Checked first so that e.g. "ddr5 ram"
+    // is not routed to laptops and "butter naan" is not routed to dairy.
+    // =========================================================================
+    const everyday = ARBEverydayCatalog.resolve(query, targetCurrency);
+    if (everyday.length > 0) {
+      for (const o of everyday) {
+        const isFood = o.entry.vertical === 'food_delivery' || o.entry.vertical === 'quick_commerce';
+        items.push({
+          providerId: `mch_${o.domain.replace(/[^a-z0-9]/g, '_')}`,
+          merchantName: o.merchantName,
+          domain: o.domain,
+          brand: o.brand,
+          title: o.title,
+          basePrice: o.price,
+          shipping: o.fee,
+          tax: o.tax,
+          nativeCurrency: o.currency,
+          url: o.url,
+          inStock: true,
+          warrantyMonths: o.entry.warrantyMonths ?? 0,
+          specs: { ...o.entry.specs, eta: o.eta },
+          pros: [`${isFood ? 'Delivery ETA' : 'Estimated delivery'}: ${o.eta}`, ...o.entry.pros],
+          cons: [...(o.entry.cons || []), 'Indicative reference price — final price confirmed on the merchant page at checkout'],
+          sku: `${o.domain.split('.')[0].toUpperCase()}-${o.entry.id.toUpperCase()}-${Math.abs(o.title.split('').reduce((a, c) => (a << 5) - a + c.charCodeAt(0), 0)).toString(36).slice(0, 6).toUpperCase()}`
+        });
+      }
+      return items;
+    }
 
     // =========================================================================
     // CATEGORY 0A: Food Delivery & Biryani (Swiggy, Zomato, EatClub/Behrouz, Blinkit, DoorDash)
@@ -314,95 +354,6 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           pros: [`Fast delivery: ${st.deliveryMins}`, `Customer Rating: ${st.rating}`, 'Prepared fresh with slow-cooked aromatic basmati rice'],
           cons: [],
           sku: `${st.domain.split('.')[0].toUpperCase()}-BIRYANI-${st.brand.replace(/\s+/g, '').toUpperCase().slice(0, 6)}`
-        });
-      }
-      return items;
-    }
-
-    // =========================================================================
-    // CATEGORY 0B: Instant 10-Minute Grocery Delivery (Milk, Bread, Eggs, Butter)
-    // =========================================================================
-    const isInstantDairyBakery = [
-      'milk', 'bread', 'eggs', 'curd', 'paneer', 'butter', 'instant delivery', 'amul'
-    ].some(w => qLower.includes(w));
-
-    if (isInstantDairyBakery) {
-      const instantStores = [
-        {
-          domain: 'blinkit.com',
-          name: 'Blinkit (10-Min Flash Delivery)',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1 Litre Tetra Pack) - 10 Min Delivery',
-          price: 72,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://blinkit.com/prn/amul-taaza-toned-milk/prid/38219',
-          eta: '10 Mins'
-        },
-        {
-          domain: 'zeptonow.com',
-          name: 'Zepto Instant Grocery',
-          brand: 'Amul',
-          title: 'Amul Taaza Toned Fresh Milk (1L Tetra) - 8 Min Instant Drop',
-          price: 72,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://www.zeptonow.com/pn/amul-taaza-toned-fresh-milk-1-l/pvid/18293',
-          eta: '8 Mins'
-        },
-        {
-          domain: 'swiggy.com',
-          name: 'Swiggy Instamart (12-Min Delivery)',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1000ml)',
-          price: 72,
-          ship: 16,
-          curr: 'INR' as const,
-          url: 'https://www.swiggy.com/instamart/item/amul-taaza-toned-milk',
-          eta: '12 Mins'
-        },
-        {
-          domain: 'bigbasket.com',
-          name: 'BigBasket (bbnow Instant)',
-          brand: 'Fresho / Amul',
-          title: 'Amul Taaza Toned Milk (1L Pouch / Tetra)',
-          price: 70,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://www.bigbasket.com/pd/40049258/amul-taaza-fresh-toned-milk-1-l/',
-          eta: '15 Mins'
-        },
-        {
-          domain: 'jiomart.com',
-          name: 'JioMart Quick Delivery',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1 L Tetra Pack)',
-          price: 68,
-          ship: 25,
-          curr: 'INR' as const,
-          url: 'https://www.jiomart.com/p/groceries/amul-taaza-homogenised-toned-milk-1-l/490001392',
-          eta: 'Same Day'
-        }
-      ];
-
-      for (const st of instantStores) {
-        items.push({
-          providerId: `mch_${st.domain.replace(/[^a-z0-9]/g, '_')}`,
-          merchantName: st.name,
-          domain: st.domain,
-          brand: st.brand,
-          title: st.title,
-          basePrice: st.price,
-          shipping: st.ship,
-          tax: 0,
-          nativeCurrency: st.curr,
-          url: st.url,
-          inStock: true,
-          warrantyMonths: 0,
-          specs: { eta: st.eta, type: 'Daily Fresh Dairy' },
-          pros: [`Ultra-fast doorstep ETA: ${st.eta}`, 'Cold-chain guaranteed freshness', 'Instant contactless delivery'],
-          cons: [],
-          sku: `${st.domain.split('.')[0].toUpperCase()}-DAIRY-AMUL`
         });
       }
       return items;
@@ -611,57 +562,10 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     }
 
     // =========================================================================
-    // CATEGORY 6: UNIVERSAL OPEN-DOMAIN SHOPPING SYNTHESIZER
-    // For ANY other query in the world (e.g. Shoes, Air Fryer, Camera, Books, Furniture, etc.)
+    // No verified catalog coverage for this query. ARB deliberately returns
+    // nothing rather than fabricating listings with invented prices; the
+    // service report links the shopper to merchant search pages instead.
     // =========================================================================
-    const coreCleanTokens = ARBQueryMatcher.extractCoreTokens(query);
-    const capitalizedName = coreCleanTokens.length > 0 
-      ? coreCleanTokens.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(' ')
-      : query;
-
-    // Estimate realistic baseline pricing based on user budget ceiling or typical retail scale
-    let estimatedBaseInr = Math.min(Math.max(budgetCeiling * 0.45, 1200), 45000);
-    if (budgetCeiling > 150000) {
-      estimatedBaseInr = 2499; // Standard consumer goods default
-    }
-
-    const universalStores = [
-      { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, mult: 1.0, prefix: 'Amazon Choice: ' },
-      { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, mult: 0.96, prefix: 'Assured Quality: ' },
-      { domain: 'walmart.com', name: 'Walmart US', curr: 'USD' as const, mult: 1.05, prefix: 'Great Value: ' },
-      { domain: 'target.com', name: 'Target US', curr: 'USD' as const, mult: 1.02, prefix: 'Popular Pick: ' },
-      { domain: 'jiomart.com', name: 'JioMart (Reliance Retail)', curr: 'INR' as const, mult: 0.94, prefix: 'Smart Bazaar: ' }
-    ];
-
-    for (const st of universalStores) {
-      const priceInStoreCurrency = st.curr === 'USD' 
-        ? Math.round((estimatedBaseInr / 87.5) * st.mult * 100) / 100 
-        : Math.round(estimatedBaseInr * st.mult);
-
-      const storeSearchUrl = st.curr === 'USD'
-        ? `https://www.${st.domain}/search?q=${encodeURIComponent(query)}`
-        : `https://www.${st.domain}/search?q=${encodeURIComponent(query)}`;
-
-      items.push({
-        providerId: `mch_${st.domain.replace(/[^a-z0-9]/g, '_')}`,
-        merchantName: st.name,
-        domain: st.domain,
-        brand: 'Verified Brand',
-        title: `${st.prefix}${capitalizedName} (Authentic Retail Edition)`,
-        basePrice: priceInStoreCurrency,
-        shipping: 0,
-        tax: 0,
-        nativeCurrency: st.curr,
-        url: storeSearchUrl,
-        inStock: true,
-        warrantyMonths: 6,
-        specs: { category: 'Consumer Retail', condition: 'Brand New In Box' },
-        pros: ['Verified authentic manufacturer supply chain', 'Eligible for fast standard home delivery', 'Covered by standard return and refund policy'],
-        cons: [],
-        sku: `${st.domain.split('.')[0].toUpperCase()}-GEN-${Math.abs(capitalizedName.length * 37).toString(36).toUpperCase()}`
-      });
-    }
-
     return items;
   }
 }
