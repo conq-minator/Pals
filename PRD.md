@@ -69,6 +69,7 @@ Traditional online shopping forces consumers to browse multiple tabs, research u
 - **FR-PULSE-002 (Order Lifecycle Management):** Create orders, authorize transactions, capture funds, and process refunds via PayPal v2 Checkout APIs.
 - **FR-PULSE-003 (Deterministic Budget Validation):** Validate that proposed order amounts do not exceed the cryptographic approval token signed by the user.
 - **FR-PULSE-004 (Webhook Ingestion & Audit Ledger):** Ingest and verify PayPal webhooks to maintain an immutable transaction ledger and generate digital receipts.
+- **FR-PULSE-005 (Dispute Copilot):** Interrogate PayPal's Customer Disputes API (`/v1/customer/disputes`), aggregate fulfillment and carrier tracking proofs, predict dispute win likelihood, detect repeated buyer disputer patterns, draft Seller Protection-compliant defenses, and provide one-click submission or claim acceptance.
 
 ### 4.5 DEFENDER (Phase 4 Security Layer Requirements)
 - **FR-DEF-001 (Merchant Anomaly Auditing):** Scan proposed merchant domains against real-time threat intelligence feeds prior to checkout approval.

@@ -348,3 +348,49 @@ export interface PayPalWebhookEvent {
 }
 ```
 
+### 6.3 Dispute Copilot Contracts
+
+```typescript
+export type DisputeReason = 'MERCHANDISE_OR_SERVICE_NOT_RECEIVED' | 'MERCHANDISE_OR_SERVICE_NOT_AS_DESCRIBED' | 'UNAUTHORISED';
+
+export interface DisputeClaim {
+  disputeId: string;
+  paypalOrderId: string;
+  createTime: string;
+  disputeAmount: {
+    value: string;
+    currencyCode: string;
+  };
+  reason: DisputeReason;
+  status: 'REQUIRED_ACTION' | 'UNDER_REVIEW' | 'RESOLVED';
+  buyer: {
+    name: string;
+    email: string;
+    pastDisputeCount: number;
+    serialDisputerFlag: boolean;
+  };
+  sellerResponseDueDate: string;
+  winLikelihoodScore: number; // 0 to 100
+  recommendedAction: 'SUBMIT_EVIDENCE' | 'ACCEPT_AND_REFUND';
+}
+
+export interface DisputeEvidenceDraft {
+  disputeId: string;
+  draftedResponseText: string;
+  supportingDocuments: Array<{
+    type: 'PROOF_OF_DELIVERY' | 'CARRIER_TRACKING' | 'CUSTOMER_COMMUNICATION' | 'TERMS_OF_SERVICE';
+    referenceUrl: string;
+    snippet: string;
+  }>;
+  sellerProtectionEligible: boolean;
+}
+
+export interface DisputeActionSubmission {
+  disputeId: string;
+  action: 'PROVIDE_EVIDENCE' | 'ACCEPT_CLAIM';
+  evidenceText?: string;
+  trackingNumber?: string;
+  carrierName?: string;
+}
+```
+

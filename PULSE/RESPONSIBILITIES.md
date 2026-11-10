@@ -12,9 +12,10 @@
 3. **Capture Payments:** Captures authorized payments after deterministic amount validation.
 4. **Enforce Deterministic Spending Limits:** Asserts that transaction amounts never exceed the user's signed `UserApprovalToken`.
 5. **Ingest Webhooks:** Verifies cryptographic signatures on PayPal webhooks and updates transaction state.
-6. **Process Refunds:** Dispatches authorized refund requests to PayPal for disputed transactions.
-7. **Write Audit Ledger:** Maintains an immutable record of transaction IDs, capture IDs, timestamps, and fees.
-8. **Issue Digital Receipts:** Emits standardized receipt objects back to the Orchestrator.
+6. **Process Refunds & Dispute Claims:** Dispatches authorized refund requests to PayPal for disputed transactions.
+7. **Dispute Copilot Operation:** Pulls claims via PayPal Customer Disputes API (`/v1/customer/disputes`), aggregates fulfillment/carrier evidence, drafts seller protection responses, flags repeat serial dispute patterns, computes win likelihood, and facilitates one-click submission or claim acceptance.
+8. **Write Audit Ledger:** Maintains an immutable record of transaction IDs, capture IDs, timestamps, and fees.
+9. **Issue Digital Receipts:** Emits standardized receipt objects back to the Orchestrator.
 
 ---
 
@@ -48,4 +49,6 @@ All inbound payment requests and outbound status notifications must route throug
 | Payment captured successfully | **GLY** via `calls/` | `PalCallResponse(action='payment.completed', data=Receipt)` |
 | Amount exceeds approval token limit | **GLY** via `calls/` | `PalCallResponse(status='ERROR', error=PolicyException('AMOUNT_MISMATCH'))` |
 | Transaction status queried | **GLY** via `calls/` | `PalCallResponse(action='transaction.status', data=StatusPayload)` |
+| Dispute Copilot: New dispute opened | **GLY** via `calls/` | `PalCallEnvelope(action='dispute.alert', payload=DisputeSummary)` |
+| Dispute Copilot: Evidence submitted | **GLY** via `calls/` | `PalCallResponse(action='dispute.evidence_submitted', data=SubmissionReceipt)` |
 

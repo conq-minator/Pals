@@ -20,6 +20,17 @@ flowchart TD
         OAuthManager --> OrdersAPI[PayPal Orders v2 API]
         OAuthManager --> CapturesAPI[PayPal Payments & Captures API]
         OAuthManager --> RefundsAPI[PayPal Disputes & Refunds API]
+        OAuthManager --> DisputesAPI[PayPal Customer Disputes API v1]
+    end
+    
+    subgraph Dispute Copilot Subsystem
+        DisputesAPI --> DisputeIngestor[Dispute Ingestion & Poller]
+        DisputeIngestor --> EvidenceCollector[Evidence Collector: Orders, Tracking, Chat]
+        EvidenceCollector --> ResponseDrafter[AI Evidence Response Drafter]
+        ResponseDrafter --> PatternDetector[Repeat Buyer Disputer Pattern Detector]
+        PatternDetector --> WinEstimator[Win Likelihood Estimator]
+        WinEstimator --> ActionDispatcher[One-Click Submit Evidence / Accept Claim]
+        ActionDispatcher --> DisputesAPI
     end
     
     WebhookReceiver[PayPal Webhook Endpoint] --> SigVerifier[Webhook Signature Verifier]
@@ -64,7 +75,45 @@ PULSE strictly isolates the distinct stages of payment processing:
 
 ---
 
-## 4. Integration with PayPal Agent Toolkit & MCP
+## 4. Dispute Copilot Architecture & Workflow
+
+Small merchants frequently lose disputes and chargebacks because they lack the legalistic knowledge or time to format evidence within PayPal's strict response windows. Dispute Copilot automates defense preparation:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Merchant as Merchant / GLY UI
+    participant Copilot as PULSE Dispute Copilot
+    participant PPDisputes as PayPal Disputes API
+    participant Tracking as Carrier Tracking API
+
+    Copilot->>PPDisputes: GET /v1/customer/disputes?dispute_state=REQUIRED_ACTION
+    PPDisputes-->>Copilot: List of Open Claims
+    Copilot->>Tracking: Retrieve Carrier Proof of Delivery (GPS/Signature)
+    Copilot->>Copilot: Correlate Transaction Ledger, Chat History & Buyer Dispute History
+    Copilot->>Copilot: Calculate Win Likelihood % & Draft Structured Evidence
+    Copilot-->>Merchant: Surface in AG Grid Dashboard (Dispute Card + Drafted Defense)
+    alt Merchant Clicks "Submit Evidence"
+        Merchant->>Copilot: One-Click Submit Evidence
+        Copilot->>PPDisputes: POST /v1/customer/disputes/{id}/provide-evidence
+        PPDisputes-->>Copilot: 200 OK (Evidence Submitted)
+    else Merchant Clicks "Accept Claim"
+        Merchant->>Copilot: One-Click Accept Claim / Refund
+        Copilot->>PPDisputes: POST /v1/customer/disputes/{id}/accept-claim
+        PPDisputes-->>Copilot: 200 OK (Dispute Closed)
+    end
+```
+
+### Core Subsystems:
+1. **Dispute Ingestion:** Interrogates `GET /v1/customer/disputes` to detect newly opened claims (INR: Item Not Received, SNAD: Significantly Not As Described, Unauthorized).
+2. **Automated Evidence Compilation:** Aggregates order timestamps, shipping tracking numbers with carrier delivery confirmations, buyer IP logs, and customer service chats.
+3. **Repeat Pattern & Anomaly Detection:** Queries the transaction ledger to flag repeat disputers (e.g., *"Warning: This buyer account has initiated 3 disputes across merchants in the past 60 days"*).
+4. **Structured Evidence Drafting:** Synthesizes PayPal Seller Protection-compliant responses citing specific policy clauses.
+5. **Sandbox Testing Strategy & Risk Mitigation:** Generating live disputes in PayPal's sandbox can be complex. PULSE introduces a dedicated Sandbox Dispute Seeder (`PULSE/disputes/sandbox_seeder.ts`) and mock dispute fixtures to ensure complete testability before live deployment.
+
+---
+
+## 5. Integration with PayPal Agent Toolkit & MCP
 
 In Phase 1+, PULSE wraps official PayPal integration tools:
 - Standard REST API v2 SDK.

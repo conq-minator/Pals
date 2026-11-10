@@ -19,11 +19,12 @@ PULSE operates downstream of the Orchestrator, Deterministic Policy Validation, 
 ## 2. Key Responsibilities
 
 1. **Centralized PayPal OAuth Management:** Secure token rotation, scope enforcement, and environment switching (Sandbox vs. Live).
-2. **PayPal REST v2 & Agent Toolkit Integration:** Interfacing with PayPal Orders (`/v2/checkout/orders`), Payments, Captures, and Disputes APIs.
-3. **Deterministic Spending Verification:** Hard validation that final order amounts do not exceed the cryptographic ceiling authorized by the user.
-4. **Order Lifecycle Separation:** Strict separation between Order Creation, User Authorization, Payment Capture, and Verification.
-5. **Webhook Ingestion & Idempotency:** Secure webhook processing with signature verification to prevent duplicate charges or replay attacks.
-6. **Immutable Transaction Ledger & Receipts:** Writing tamper-evident audit records and digital receipts for every monetary event.
+2. **PayPal REST v2 & Agent Toolkit Integration:** Interfacing with PayPal Orders (`/v2/checkout/orders`), Payments, Captures, and Customer Disputes APIs.
+3. **Dispute Copilot (Merchant Chargeback Defense):** Proactively pulls open claims via PayPal's Customer Disputes API (`/v1/customer/disputes`), analyzes claim types, aggregates evidence (order data, shipment tracking, communication logs), drafts persuasive evidence responses, computes win-likelihood scores, surfaces repeated buyer dispute patterns (e.g. serial disputers), and provides one-click evidence submission or claim acceptance.
+4. **Deterministic Spending Verification:** Hard validation that final order amounts do not exceed the cryptographic ceiling authorized by the user.
+5. **Order Lifecycle Separation:** Strict separation between Order Creation, User Authorization, Payment Capture, and Verification.
+6. **Webhook Ingestion & Idempotency:** Secure webhook processing with signature verification to prevent duplicate charges or replay attacks.
+7. **Immutable Transaction Ledger & Receipts:** Writing tamper-evident audit records and digital receipts for every monetary event.
 
 ---
 
