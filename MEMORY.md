@@ -65,6 +65,16 @@
 - **Decision:** Establish a dedicated root-level folder `calls/` as the single communication gateway for all PALS. Every inter-agent request, response, and task handoff (GLY <-> ARB, GLY <-> PULSE, DEFENDER <-> PULSE) must pass through `calls/`. No PAL may establish an independent communication channel.
 - **Consequences:** Completely decouples agents; each PAL only needs to know how to call the shared gateway. Centralizes tracing, correlation IDs, timeouts, and error handling. Reserved for implementation; active in Phase 0 as an architectural contract.
 
+### ADR-007: Adoption of OpenMausBot Egress Containment & OpenDot "Second Look" Verification
+- **Date:** 2026-11-10
+- **Status:** **APPROVED FOR PHASE 1–4 ROADMAP**
+- **Context:** Evaluated external architectures from `milind-soni/OpenMausBot` and `thinkwee/OpenDot` for agent sandboxing, action verification, and network isolation.
+- **Decision:** 
+  1. Adapt OpenMausBot's SOCKS5 proxy egress filtering and DNS-rebinding guard into `ARB/` and `defender/` to isolate headless scraping.
+  2. Adapt OpenMausBot's event normalization stream pattern into `calls/`.
+  3. Adapt OpenDot's "Second Look" action verification paradigm and "Permanently Locked Financial Actions" into `shared/policy/`, `defender/`, and `PULSE/`.
+- **Consequences:** Details documented in `docs/research/OPENMAUSBOT_AND_OPENDOT_ANALYSIS.md`. Implementation scheduled across respective phases. No immediate code added in Phase 0.
+
 ---
 
 ## 3. Rejected Alternatives & Architectural Graveyard

@@ -12,6 +12,7 @@ docs/
 ├── knowledge/          # Raw and processed knowledge assets
 │   └── paypal/         # Official PayPal consumer and developer documentation for GLY RAG
 └── research/           # Competitive analysis, benchmark reports, and prototype evaluations
+    └── OPENMAUSBOT_AND_OPENDOT_ANALYSIS.md  # Architectural analysis of OpenMausBot & OpenDot patterns
 ```
 
 ---
