@@ -8,7 +8,8 @@
 
 ## 1. Current Status & Active Focus
 
-- **Current Status:** Architectural contracts, order state machine, token invariants, and idempotency requirements documented.
+- **Current Status:** Architectural contracts, order state machine, token invariants, and idempotency requirements documented. Payment actions updated: `payment.create_order`, `payment.capture`, `payment.refund`.
+- **Two-step flow:** (1) `create_order` → PayPal order with `approveUrl`; buyer authenticates on PayPal. (2) `capture_order` → re-verified capture after buyer approval, returns `COMPLETED`.
 - **Active Focus:** Awaiting Phase 1 authorization to set up the PayPal Sandbox environment and OAuth token lifecycle manager.
 
 ---
