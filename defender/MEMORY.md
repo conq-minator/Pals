@@ -34,7 +34,7 @@
 - **Rationale:** No new dependencies (no Redis client); sufficient for hackathon prototype; production would use Redis sorted sets.
 
 ### ADR-DEF-005: Gemini Flash as Default LLM
-- **Decision:** Default model `gemini-1.5-flash` read from `GEMINI_MODEL` env var; `GEMINI_API_KEY` required for LLM layer.
+- **Decision:** Default model `gemini-3.5-flash` read from `GEMINI_MODEL` env var; `GEMINI_API_KEY` required for LLM layer.
 - **Rationale:** Current stable Gemini Flash model at the time of implementation; configurable via environment.
 
 ---

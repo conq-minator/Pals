@@ -1,7 +1,6 @@
 import 'dotenv/config';
 
 import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
 import { DefenderService } from './index.js';
 import { DefenderAssessmentRequestSchema } from '../shared/types/index.js';
 
@@ -12,12 +11,23 @@ const port = process.env.DEFENDER_PORT || 8100;
 const defenderService = new DefenderService();
 
 // --- CORS middleware (simple permissive config for development) ---
-app.use(
-  cors({
-    origin: ['http://localhost:3333', 'http://localhost:8000'],
-    credentials: true,
-  })
+const allowedOrigins = new Set(
+  ['http://localhost:3333', 'http://localhost:8000', process.env.ARB_UI_URL, process.env.PULSE_PUBLIC_URL].filter(Boolean)
 );
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 // Parse JSON body
 app.use(express.json());

@@ -86,7 +86,7 @@ Copy `.env` and provide your Gemini API key:
 cp .env .env.local
 # Then set:
 export GEMINI_API_KEY=your_key_here
-# Optional: export GEMINI_MODEL=gemini-1.5-flash
+# Optional: export GEMINI_MODEL=gemini-3.5-flash
 export DEFENDER_PORT=8100
 ```
 

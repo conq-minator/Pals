@@ -1,5 +1,6 @@
 import { DefenderAssessmentRequest, DefenderAssessmentResponse, DefenderAssessmentRequestSchema } from '../shared/types/index.js';
 import { PalsLogger } from '../shared/logging/index.js';
+import { CentralCallsSystem } from '../calls/index.js';
 import { runAllRules } from './rules.js';
 import { checkScamDomain } from './domain_check.js';
 import { scanPromptInjection } from './injection_scanner.js';
@@ -42,13 +43,18 @@ export class DefenderService {
     }>;
     llmAvailable: boolean;
   }> = [];
-  private static auditIndex = 0;
 
-  constructor() {
-    if (DefenderService.auditLog.length === 0) {
-      DefenderService.auditLog = [];
-      DefenderService.auditIndex = 0;
-    }
+  /** True/false for the most recent assessment: did the LLM judge actually run? */
+  public lastLlmAvailable = false;
+
+  constructor(callsSystem: CentralCallsSystem = CentralCallsSystem.getInstance()) {
+    // Other companions (GLY) reach DEFENDER through the Central Calls System.
+    callsSystem.registerHandler<DefenderAssessmentRequest, DefenderAssessmentResponse>(
+      'DEFENDER',
+      'security.assess_transaction',
+      async (envelope) => this.assessTransaction(envelope.payload)
+    );
+    this.logger.info('DEFENDER registered with Central Calls System');
   }
 
   public async assessTransaction(
@@ -124,6 +130,7 @@ export class DefenderService {
 
     // --- Layer 5: LLM judge (real Gemini call) ---
     const llmResult = await judgeWithLLM(request);
+    this.lastLlmAvailable = llmResult.llmAvailable;
 
     // --- Merge all threats ---
     // Start with rule threats
