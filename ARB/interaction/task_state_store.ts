@@ -19,6 +19,8 @@ export interface ResearchTaskState {
 export class ARBTaskStateStore {
   private static instance: ARBTaskStateStore;
   private states = new Map<string, ResearchTaskState>();
+  private static readonly TTL_MS = 60 * 60 * 1000; // 1-hour TTL
+  private static readonly MAX_TASKS = 500;        // Max 500 tasks
 
   public static getInstance(): ARBTaskStateStore {
     if (!ARBTaskStateStore.instance) {
@@ -27,15 +29,42 @@ export class ARBTaskStateStore {
     return ARBTaskStateStore.instance;
   }
 
+  private pruneExpired(): void {
+    const now = Date.now();
+    for (const [id, state] of this.states.entries()) {
+      if (now - new Date(state.updatedAt).getTime() > ARBTaskStateStore.TTL_MS) {
+        this.states.delete(id);
+      }
+    }
+  }
+
   public save(state: ResearchTaskState): void {
+    this.pruneExpired();
+
+    // If map is at capacity, evict oldest entry
+    if (this.states.size >= ARBTaskStateStore.MAX_TASKS && !this.states.has(state.taskId)) {
+      const oldestKey = this.states.keys().next().value;
+      if (oldestKey) {
+        this.states.delete(oldestKey);
+      }
+    }
+
     this.states.set(state.taskId, {
       ...state,
-      updatedAt: new Date().toISOString()
+      updatedAt: state.updatedAt || new Date().toISOString()
     });
   }
 
   public get(taskId: string): ResearchTaskState | undefined {
-    return this.states.get(taskId);
+    const state = this.states.get(taskId);
+    if (!state) return undefined;
+
+    if (Date.now() - new Date(state.updatedAt).getTime() > ARBTaskStateStore.TTL_MS) {
+      this.states.delete(taskId);
+      return undefined;
+    }
+
+    return state;
   }
 
   public clear(): void {

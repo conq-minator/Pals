@@ -133,37 +133,37 @@ export class ARBLandedCostCalculator {
           domain.includes('dominos.co.in') || domain.includes('pizzahut.co.in')) {
         // Delivery fee
         shippingFee = domain.includes('zomato') ? 35 : (domain.includes('swiggy') ? 29 : 0);
-        shippingConfirmed = true;
+        shippingConfirmed = false;
         packagingFee = 15;
         platformFee = 5;
         // 5% restaurant GST
         taxes = Math.round((effectivePrice + packagingFee) * 0.05);
-        taxConfirmed = true;
+        taxConfirmed = false;
 
         if (shippingFee > 0) {
           feeLines.push({
             name: 'Delivery Fee',
             amount: shippingFee,
-            confirmed: true,
+            confirmed: false,
             description: 'Standard local delivery partner fee'
           });
         }
         feeLines.push({
           name: 'Packaging & Handling',
           amount: packagingFee,
-          confirmed: true,
+          confirmed: false,
           description: 'Hygienic tamper-evident restaurant packaging'
         });
         feeLines.push({
           name: 'Platform Convenience Fee',
           amount: platformFee,
-          confirmed: true,
+          confirmed: false,
           description: 'Direct platform servicing fee'
         });
         feeLines.push({
           name: 'Restaurant GST (5%)',
           amount: taxes,
-          confirmed: true,
+          confirmed: false,
           description: 'Mandatory statutory GST on prepared food services'
         });
       }
@@ -173,20 +173,20 @@ export class ARBLandedCostCalculator {
         // Free delivery on orders >= 499
         if (effectivePrice >= 499) {
           shippingFee = 0;
-          shippingConfirmed = true;
+          shippingConfirmed = false;
           feeLines.push({
             name: 'Express Delivery',
             amount: 0,
-            confirmed: true,
+            confirmed: false,
             description: 'Free instant 10-minute delivery (qualifies over ₹499 cart)'
           });
         } else {
           shippingFee = 19;
-          shippingConfirmed = true;
+          shippingConfirmed = false;
           feeLines.push({
             name: 'Express Delivery Fee',
             amount: 19,
-            confirmed: true,
+            confirmed: false,
             description: 'Instant 10-minute flash delivery fee (orders under ₹499)'
           });
         }
@@ -194,37 +194,37 @@ export class ARBLandedCostCalculator {
         feeLines.push({
           name: 'Platform Fee',
           amount: platformFee,
-          confirmed: true,
+          confirmed: false,
           description: 'Platform infrastructure fee'
         });
         // Groceries include GST in item price
         taxes = 0;
-        taxConfirmed = true;
+        taxConfirmed = false;
       }
 
       // 2C. Pharmacy & First Aid (Apollo, 1mg)
       else if (domain.includes('apollopharmacy') || domain.includes('1mg.com') || category === 'pharmacy') {
         if (effectivePrice >= 300) {
           shippingFee = 0;
-          shippingConfirmed = true;
+          shippingConfirmed = false;
           feeLines.push({
             name: 'Pharmacy Delivery',
             amount: 0,
-            confirmed: true,
+            confirmed: false,
             description: 'Free doorstep healthcare delivery (orders over ₹300)'
           });
         } else {
           shippingFee = 25;
-          shippingConfirmed = true;
+          shippingConfirmed = false;
           feeLines.push({
             name: 'Pharmacy Delivery Fee',
             amount: 25,
-            confirmed: true,
+            confirmed: false,
             description: 'Standard delivery fee for orders under ₹300'
           });
         }
         taxes = 0;
-        taxConfirmed = true;
+        taxConfirmed = false;
       }
 
       // 2D. Indian Tier-1 E-Commerce & OEM (Amazon.in, Flipkart, Croma, Reliance Digital, Apple, Dell)
@@ -239,7 +239,7 @@ export class ARBLandedCostCalculator {
           feeLines.push({
             name: 'Standard Delivery',
             amount: 0,
-            confirmed: true,
+            confirmed: false,
             description: `Free shipping policy (order exceeds ₹${freeThreshold} threshold)`
           });
         } else {
@@ -248,7 +248,7 @@ export class ARBLandedCostCalculator {
           feeLines.push({
             name: 'Standard Shipping Fee',
             amount: 40,
-            confirmed: true,
+            confirmed: false,
             description: `Standard delivery fee for orders below ₹${freeThreshold}`
           });
         }
@@ -262,11 +262,11 @@ export class ARBLandedCostCalculator {
         const threshold = domain.includes('bestbuy') ? 50 : 35;
         if (effectivePrice >= threshold) {
           shippingFee = 0;
-          shippingConfirmed = true;
+          shippingConfirmed = false;
           feeLines.push({
             name: 'Standard Ground Shipping',
             amount: 0,
-            confirmed: true,
+            confirmed: false,
             description: `Free standard shipping (exceeds $${threshold} minimum)`
           });
         } else {

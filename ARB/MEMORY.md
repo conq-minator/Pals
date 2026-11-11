@@ -120,3 +120,27 @@
   5. **Item 20 (Persistent User Preference Memory):** Created `ARB/memory/preference_store.ts` (`ARBPreferenceStore`). Persists user preferences (dietary restrictions, preferred brands, excluded merchants, default pincode, currency) across sessions and automatically enriches incoming research tasks.
   6. **Item 22 (Ground-Truth Evaluation Benchmark):** Created `ARB/benchmark/eval_suite.ts` (`ARBEvaluationBenchmark`) and test suite `tests/arb_eval_benchmark.test.ts`. Verifies 100% constraint satisfaction, 0% fabrication rate, 100% ambiguity detection, 100% landed cost completeness, and 100% PULSE handoff readiness with an overall benchmark score >= 95.
   7. All 53 tests in the monorepo pass hermetically in ~2.4 seconds with zero network flakiness.
+
+### ADR-ARB-009: Production Hardening Across Sections A, B, and C (All 16 Flaws Resolved)
+- **Status:** **APPROVED**
+- **Decision:**
+  1. **Section A (Pricing Anti-Fabrication & Honest Quoting):**
+     - **Item 1:** Candidate voucher codes are never auto-deducted from quoted prices without cart validation. `arbitrateDeal` returns `candidateCodes` with `discountedPrice = basePrice`, and candidate codes are presented in `pros` as checkout suggestions.
+     - **Item 2:** Price-matching arbitration moved out of merchant providers into `ARBAgentLoop` after canonical grouping (`groupOffersByProduct`). When $\ge 2$ merchants offer the same canonical product, the cheapest listing is passed as `competitorProof` to competitor listings and noted as a `"Price-match opportunity on [domain]"` without unauthorized price deductions.
+     - **Item 3:** All fee line items in `ARBLandedCostCalculator` are marked `confirmed: false` unless verified from live cart data.
+     - **Item 4:** `ARBSelfVerifier` assigns confidence tiers rigorously: claims sourced from structured `schema.org` metadata receive `CONFIRMED`; title-parsed heuristics receive `ESTIMATED`.
+     - **Item 5:** Replaced invented payment methods with `KNOWN_MERCHANT_PAYMENTS` mapping authentic payment rails (PayPal/Credit Card for US tech retailers; UPI/Cards/NetBanking for Indian retailers) and leaving unknown merchants undefined.
+  2. **Section B (Activated & Connected Agent Capabilities):**
+     - **Item 6:** Fully utilized extracted fields: `softPreferences` boost `specFit` (+10 each) and record annotations; `deliveryBy` checks parsed delivery ETAs and rewards/penalizes `deliverySpeed`; `budgetFlexibility` retries research with a 10% budget stretch when 0 items qualify under strict ceiling, labeling results accordingly.
+     - **Item 7:** Refactored `ARBAgentLoop.run` into a bounded adaptive reasoning cycle (`while (iteration < maxIterations && !done)`) that observes intermediate outputs, widens merchant providers, adapts budgets, and enriches top picks.
+     - **Item 8:** Implemented `FetchLLMProvider` in `shared/llm/index.ts` connecting to Gemini and OpenAI-compatible REST endpoints, with graceful `MockLLMProvider` fallback for offline tests.
+     - **Item 9:** Implemented ambiguity pausing: when queries are underspecified, the loop sends `research.needs_input` via `calls/`, saves state, and returns early with `needsInput: true`. Added `calls/` handler `ARB:research.answer` and `arb.answerResearch` to resume execution seamlessly.
+     - **Item 10:** Added `clearTask(taskId)` to `ARBProgressEmitter`, with cancellation checks at every loop step and guaranteed task cleanup in a `finally` block.
+     - **Item 11:** Renamed composite score winner badge from `'👑 Best Overall'` to `'💎 Best Value'` to avoid contradictions with landed-cost primacy.
+     - **Item 12:** Added `/api/refine` and Server-Sent Events `/api/progress/:taskId` endpoints to `ARB/ui/server.ts`, and ensured `/api/search` returns `taskId`.
+  3. **Section C (Robustness & Integrity):**
+     - **Item 13:** Added 1-hour TTL eviction and 500-task max cap to `ARBTaskStateStore`; added 1000-user max cap with LRU eviction to `ARBPreferenceStore`.
+     - **Item 14:** `ARBTrustScorer` defaults unknown merchant domains to `sslValid: false` and `domainAgeYears: 0` until verified.
+     - **Item 15:** `ARBAlternativeFinder` sorts step-down alternatives by number of satisfied requirements and explicitly surfaces `failedReasons[0]`.
+     - **Item 16:** Live web crawler verified with two-stage snippet parsing and error resilience.
+  4. **Test Verification:** All 85 unit, regression, and benchmark tests pass cleanly in Node.js test runner with 0 failures and 0 typecheck errors.

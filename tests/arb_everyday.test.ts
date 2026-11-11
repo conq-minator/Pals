@@ -8,9 +8,11 @@ ARBCurrencyConverter.refreshRates = async () => {};
 
 const arb = new ArbService();
 
-async function research(prompt: string) {
+async function research(prompt: string, allowAmbiguousGuess = true) {
   const extracted = ARBQueryExtractor.extractFromText(prompt);
-  const result = await arb.conductResearch(ARBQueryExtractor.toPayload(extracted), 'test');
+  const payload = ARBQueryExtractor.toPayload(extracted);
+  if (allowAmbiguousGuess) payload.allowAmbiguousGuess = true;
+  const result = await arb.conductResearch(payload, 'test');
   return { extracted, result, titles: result.topRecommendations.map(l => l.productTitle.toLowerCase()) };
 }
 

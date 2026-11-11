@@ -89,12 +89,13 @@ export class ARBSelfVerifier {
     if (!priceSatisfied) {
       allHardSatisfied = false;
     }
+    const priceConfidence: VerificationConfidence = listing.pros.some(p => p.includes('schema.org')) ? 'CONFIRMED' : 'ESTIMATED';
     verifiedClaims.push({
       field: 'budget_ceiling',
       expected: `<= ${budgetCeiling} ${payload.currency}`,
       observed: `${listing.totalLandedCost} ${listing.currency}`,
       evidence: `Landed cost: base ${listing.itemPrice} + ship ${listing.estimatedShipping} + tax ${listing.estimatedTax}`,
-      confidence: 'CONFIRMED',
+      confidence: priceConfidence,
       satisfied: priceSatisfied
     });
     if (priceSatisfied) {
@@ -136,7 +137,9 @@ export class ARBSelfVerifier {
       const reqStorageGb = String(reqStorageRaw).toUpperCase().includes('TB') ? num * 1024 : num;
       const actualStorage = normalized.storageGb;
       const isSatisfied = actualStorage !== undefined && actualStorage >= reqStorageGb;
-      const confidence: VerificationConfidence = actualStorage !== undefined ? 'CONFIRMED' : 'UNVERIFIED';
+      const confidence: VerificationConfidence = actualStorage !== undefined
+        ? (listing.pros.some(p => p.includes('schema.org')) ? 'CONFIRMED' : 'ESTIMATED')
+        : 'UNVERIFIED';
 
       if (actualStorage === undefined) {
         hasUnverified = true;
@@ -162,7 +165,9 @@ export class ARBSelfVerifier {
       const reqGpu = mandatory['gpu'].toLowerCase();
       const actualGpu = normalized.gpuModel;
       const isSatisfied = actualGpu !== undefined && actualGpu.toLowerCase().includes(reqGpu);
-      const confidence: VerificationConfidence = actualGpu ? 'CONFIRMED' : 'UNVERIFIED';
+      const confidence: VerificationConfidence = actualGpu
+        ? (listing.pros.some(p => p.includes('schema.org')) ? 'CONFIRMED' : 'ESTIMATED')
+        : 'UNVERIFIED';
 
       if (!actualGpu) {
         hasUnverified = true;
@@ -193,19 +198,22 @@ export class ARBSelfVerifier {
       if (!isSatisfied) {
         allHardSatisfied = false;
       }
+      const dietConfidence: VerificationConfidence = actualDiet
+        ? (listing.pros.some(p => p.includes('schema.org')) ? 'CONFIRMED' : 'ESTIMATED')
+        : 'UNVERIFIED';
       verifiedClaims.push({
         field: 'dietary',
         expected: reqDiet,
         observed: actualDiet,
         evidence: `Dish classification: ${actualDiet || 'general'}`,
-        confidence: actualDiet ? 'CONFIRMED' : 'ESTIMATED',
+        confidence: dietConfidence,
         satisfied: isSatisfied
       });
     }
 
     const overallConfidence: VerificationConfidence = !allHardSatisfied
       ? 'UNVERIFIED'
-      : (hasUnverified ? 'ESTIMATED' : 'CONFIRMED');
+      : (hasUnverified || verifiedClaims.some(c => c.confidence === 'ESTIMATED') ? 'ESTIMATED' : 'CONFIRMED');
 
     return {
       sku: listing.sku,

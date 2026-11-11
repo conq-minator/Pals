@@ -19,6 +19,7 @@ export interface ScoredListing {
 export interface MultiFactorRankingResult {
   rankedListings: ScoredListing[];
   bestOverall?: ScoredListing;
+  bestValue?: ScoredListing;
   cheapest?: ScoredListing;
   fastest?: ScoredListing;
 }
@@ -44,6 +45,24 @@ export class ARBMultiFactorRanker {
     const upper = parseInt(m[2] || m[1], 10);
     const unit = m[3];
     return unit === 'min' ? upper : (unit === 'day' ? upper * 24 * 60 : upper * 60);
+  }
+
+  /**
+   * Resolves a deliveryBy constraint string (e.g. 'instant', 'same-day', 'next-day') to target upper-bound minutes.
+   */
+  public static resolveRequestedEtaMinutes(deliveryBy?: string): number | undefined {
+    if (!deliveryBy) return undefined;
+    const clean = deliveryBy.toLowerCase().trim();
+    if (clean === 'instant' || clean.includes('15 min') || clean.includes('30 min') || clean.includes('fastest') || clean.includes('asap')) {
+      return 60;
+    }
+    if (clean === 'same-day' || clean.includes('same day') || clean.includes('today')) {
+      return 12 * 60;
+    }
+    if (clean === 'next-day' || clean.includes('next day') || clean.includes('tomorrow')) {
+      return 24 * 60;
+    }
+    return ARBMultiFactorRanker.parseEtaMinutes([`Estimated delivery: ${deliveryBy}`]);
   }
 
   /**
@@ -95,6 +114,20 @@ export class ARBMultiFactorRanker {
         deliverySpeed = 60;
       }
 
+      // Timeline constraint (deliveryBy)
+      const requestedEtaMinutes = ARBMultiFactorRanker.resolveRequestedEtaMinutes(payload.deliveryBy);
+      if (requestedEtaMinutes !== undefined && etaMinutes !== undefined) {
+        if (etaMinutes <= requestedEtaMinutes) {
+          deliverySpeed = Math.min(100, deliverySpeed + 15);
+          const meetNote = `Meets requested delivery timeline (${payload.deliveryBy})`;
+          if (!listing.pros.includes(meetNote)) listing.pros.push(meetNote);
+        } else {
+          deliverySpeed = Math.max(10, deliverySpeed - 30);
+          const delayNote = `Delivery ETA (${Math.round(etaMinutes / 60)}h) exceeds requested timeline (${payload.deliveryBy})`;
+          if (!listing.cons.includes(delayNote)) listing.cons.push(delayNote);
+        }
+      }
+
       // 3. Spec Fit Score
       let specFit = 90;
       if (listing.unverifiedSpecs && listing.unverifiedSpecs.length > 0) {
@@ -106,6 +139,23 @@ export class ARBMultiFactorRanker {
       )) {
         specFit += 15;
       }
+
+      // Soft preferences fit
+      if (payload.softPreferences && Object.keys(payload.softPreferences).length > 0) {
+        for (const [prefKey, prefVal] of Object.entries(payload.softPreferences)) {
+          const valStr = String(prefVal).toLowerCase();
+          const titleLower = listing.productTitle.toLowerCase();
+          const prosLower = listing.pros.join(' ').toLowerCase();
+          if (titleLower.includes(valStr) || prosLower.includes(valStr)) {
+            specFit += 10;
+            const softNote = `Satisfies preferred spec: ${prefKey} (${prefVal})`;
+            if (!listing.pros.includes(softNote)) {
+              listing.pros.push(softNote);
+            }
+          }
+        }
+      }
+
       specFit = Math.max(0, Math.min(100, specFit));
 
       // 4. Trust Score
@@ -154,14 +204,14 @@ export class ARBMultiFactorRanker {
     // Sort by composite score descending
     scored.sort((a, b) => b.compositeScore - a.compositeScore);
 
-    // Identify labelled picks
-    const bestOverall = scored[0];
-    bestOverall.badges.push('👑 Best Overall');
+    // Identify labelled picks (Best Value, Cheapest, Fastest)
+    const bestValue = scored[0];
+    bestValue.badges.push('💎 Best Value');
 
     // Find cheapest
     const cheapestCandidate = [...scored].sort((a, b) => a.listing.totalLandedCost - b.listing.totalLandedCost)[0];
     if (cheapestCandidate) {
-      if (!cheapestCandidate.badges.includes('👑 Best Overall')) {
+      if (!cheapestCandidate.badges.includes('💎 Best Value')) {
         cheapestCandidate.badges.push('💰 Cheapest Option');
       } else {
         cheapestCandidate.badges.push('💰 Lowest Price');
@@ -182,7 +232,8 @@ export class ARBMultiFactorRanker {
 
     return {
       rankedListings: scored,
-      bestOverall,
+      bestOverall: bestValue,
+      bestValue,
       cheapest: cheapestCandidate,
       fastest: fastestCandidate
     };

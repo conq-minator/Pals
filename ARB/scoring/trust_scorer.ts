@@ -519,8 +519,8 @@ export class ARBTrustScorer {
       supportsSecurePayments: merchantSignals?.supportsSecurePayments ?? registered.supportsSecurePayments ?? false,
       averageRating: merchantSignals?.averageRating ?? registered.averageRating ?? 3.0,
       reviewVolume: merchantSignals?.reviewVolume ?? registered.reviewVolume ?? 10,
-      sslValid: merchantSignals?.sslValid ?? registered.sslValid ?? true,
-      domainAgeYears: merchantSignals?.domainAgeYears ?? registered.domainAgeYears ?? 1
+      sslValid: merchantSignals?.sslValid ?? registered.sslValid ?? false,
+      domainAgeYears: merchantSignals?.domainAgeYears ?? registered.domainAgeYears ?? 0
     };
 
     let score = 50; // Neutral baseline

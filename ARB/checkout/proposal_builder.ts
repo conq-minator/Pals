@@ -3,6 +3,33 @@ import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 
 export class ARBProposalBuilder {
   /**
+   * Real per-merchant supported payment methods.
+   * Unknown domains return undefined rather than inventing payment support.
+   */
+  public static readonly KNOWN_MERCHANT_PAYMENTS: Record<string, string[]> = {
+    'dell.com': ['PAYPAL', 'CREDIT_CARD', 'UPI', 'NET_BANKING'],
+    'lenovo.com': ['PAYPAL', 'CREDIT_CARD', 'UPI', 'NET_BANKING'],
+    'walmart.com': ['PAYPAL', 'CREDIT_CARD'],
+    'bestbuy.com': ['PAYPAL', 'CREDIT_CARD'],
+    'bhphotovideo.com': ['PAYPAL', 'CREDIT_CARD'],
+    'microcenter.com': ['PAYPAL', 'CREDIT_CARD'],
+    'keychron.in': ['PAYPAL', 'CREDIT_CARD', 'UPI', 'NET_BANKING'],
+    'apple.com': ['PAYPAL', 'CREDIT_CARD', 'UPI', 'NET_BANKING'],
+    'amazon.in': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'flipkart.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'croma.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'reliancedigital.in': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'swiggy.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'zomato.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'blinkit.com': ['UPI', 'CREDIT_CARD'],
+    'zeptonow.com': ['UPI', 'CREDIT_CARD'],
+    'apollopharmacy.in': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    '1mg.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'bigbasket.com': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'dominos.co.in': ['UPI', 'CREDIT_CARD', 'NET_BANKING'],
+    'pizzahut.co.in': ['UPI', 'CREDIT_CARD', 'NET_BANKING']
+  };
+  /**
    * Constructs an immutable, validated PurchaseProposal ready for user review, cryptographic approval,
    * and friction-free handoff to PULSE (Flaw 19).
    */
@@ -33,12 +60,11 @@ export class ARBProposalBuilder {
     const taxes = listing.estimatedTax;
     const totalPayable = basePrice - discountApplied + shippingFee + taxes;
 
-    const supportedPaymentMethods = [
-      'PAYPAL',
-      'CREDIT_CARD',
-      'UPI',
-      'NET_BANKING'
-    ];
+    const cleanDomain = listing.merchantDomain.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
+    const supportedPaymentMethods = ARBProposalBuilder.KNOWN_MERCHANT_PAYMENTS[cleanDomain];
+    const preferredRail = supportedPaymentMethods?.includes('PAYPAL')
+      ? 'PAYPAL'
+      : (supportedPaymentMethods?.includes('UPI') ? 'UPI' : 'CREDIT_CARD');
 
     // Never invent a delivery address: the pincode is only included when the shopper supplied one.
     const prefilledShipping: Record<string, string> = {
@@ -67,7 +93,7 @@ export class ARBProposalBuilder {
       payment: {
         amount: totalPayable,
         currency: listing.currency,
-        preferredRail: 'PAYPAL'
+        preferredRail
       },
       items: [
         {

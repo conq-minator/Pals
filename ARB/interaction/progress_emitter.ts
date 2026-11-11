@@ -58,6 +58,13 @@ export class ARBProgressEmitter {
   }
 
   /**
+   * Cleans up tracking state for a completed or aborted task.
+   */
+  public clearTask(taskId: string): void {
+    this.cancelledTasks.delete(taskId);
+  }
+
+  /**
    * Emits progress update via calls/ and notifies registered listeners.
    */
   public async emitProgress(

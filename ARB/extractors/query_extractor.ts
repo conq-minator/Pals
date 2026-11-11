@@ -466,7 +466,8 @@ export class ARBQueryExtractor {
       excludedBrands: req.excludedBrands.length > 0 ? req.excludedBrands : undefined,
       deliveryPostalCode: req.deliveryPostalCode,
       deliveryBy: req.deliveryBy,
-      minMerchantTrustScore: req.minMerchantTrustScore
+      minMerchantTrustScore: req.minMerchantTrustScore,
+      budgetFlexibility: req.budgetFlexibility
     };
   }
 }

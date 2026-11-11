@@ -85,6 +85,113 @@ export class MockLLMProvider implements ILLMProvider {
 }
 
 /**
+ * Real LLM Provider connecting to Google Gemini or OpenAI compatible APIs.
+ */
+export interface FetchLLMConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  providerType?: 'gemini' | 'openai';
+}
+
+export class FetchLLMProvider implements ILLMProvider {
+  private apiKey: string;
+  private baseUrl?: string;
+  private defaultModel: string;
+  private providerType: 'gemini' | 'openai';
+
+  constructor(config?: FetchLLMConfig) {
+    this.apiKey = config?.apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '';
+    this.baseUrl = config?.baseUrl || process.env.LLM_BASE_URL;
+    this.providerType = config?.providerType || (process.env.GEMINI_API_KEY ? 'gemini' : 'openai');
+    this.defaultModel = config?.model || (this.providerType === 'gemini' ? 'gemini-1.5-flash' : 'gpt-4o-mini');
+  }
+
+  async generate(messages: LLMMessage[], options?: LLMGenerateOptions): Promise<LLMResponse> {
+    const model = options?.model || this.defaultModel;
+
+    if (!this.apiKey) {
+      throw new Error('LLM API key not configured. Set GEMINI_API_KEY or OPENAI_API_KEY.');
+    }
+
+    if (this.providerType === 'gemini') {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+      const contents = messages.map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents,
+          generationConfig: {
+            temperature: options?.temperature ?? 0.2,
+            maxOutputTokens: options?.maxTokens ?? 1024,
+            responseMimeType: options?.responseFormat === 'json' ? 'application/json' : 'text/plain'
+          }
+        })
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gemini API error (${res.status}): ${errorText}`);
+      }
+
+      const json = await res.json() as any;
+      const content = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return {
+        content,
+        model,
+        tokenUsage: {
+          promptTokens: json.usageMetadata?.promptTokenCount || 0,
+          completionTokens: json.usageMetadata?.candidatesTokenCount || 0,
+          totalTokens: json.usageMetadata?.totalTokenCount || 0
+        }
+      };
+    } else {
+      const url = this.baseUrl ? `${this.baseUrl}/chat/completions` : 'https://api.openai.com/v1/chat/completions';
+      const body: any = {
+        model,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        temperature: options?.temperature ?? 0.2,
+        max_tokens: options?.maxTokens ?? 1024
+      };
+      if (options?.responseFormat === 'json') {
+        body.response_format = { type: 'json_object' };
+      }
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`OpenAI API error (${res.status}): ${errorText}`);
+      }
+
+      const json = await res.json() as any;
+      const content = json.choices?.[0]?.message?.content || '';
+      return {
+        content,
+        model,
+        tokenUsage: {
+          promptTokens: json.usage?.prompt_tokens || 0,
+          completionTokens: json.usage?.completion_tokens || 0,
+          totalTokens: json.usage?.total_tokens || 0
+        }
+      };
+    }
+  }
+}
+
+/**
  * Shared LLM Gateway singleton
  */
 export class SharedLLMGateway {
@@ -93,8 +200,12 @@ export class SharedLLMGateway {
   private logger = new PalsLogger('SharedLLMGateway');
 
   private constructor() {
-    // Default to Mock provider for local safety; in production, uses Gemini/OpenAI/Claude
-    this.provider = new MockLLMProvider();
+    // If environment credentials are present, use real FetchLLMProvider; otherwise default to MockLLMProvider for offline safety
+    if (process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY) {
+      this.provider = new FetchLLMProvider();
+    } else {
+      this.provider = new MockLLMProvider();
+    }
   }
 
   public static getInstance(): SharedLLMGateway {

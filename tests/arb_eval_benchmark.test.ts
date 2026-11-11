@@ -120,16 +120,16 @@ test('ARBProposalBuilder: formats actionable PULSE payment handoff payload', () 
   const listing: MerchantListing = {
     merchantId: 'mch_test',
     trustReasons: [],
-    sku: 'SWIGGY-PIZZA-TEST',
-    productTitle: 'Overload Cheese Pizza',
-    merchantName: 'Swiggy',
-    merchantDomain: 'swiggy.com',
-    productUrl: 'https://swiggy.com/restaurants/pizza-test',
-    itemPrice: 400,
+    sku: 'DELL-INSPIRON-TEST',
+    productTitle: 'Dell Inspiron 15 Laptop',
+    merchantName: 'Dell',
+    merchantDomain: 'dell.com',
+    productUrl: 'https://dell.com/en-in/shop/dell-laptops',
+    itemPrice: 45000,
     currency: 'INR',
-    estimatedTax: 20,
-    estimatedShipping: 35,
-    totalLandedCost: 455,
+    estimatedTax: 0,
+    estimatedShipping: 0,
+    totalLandedCost: 45000,
     inStock: true,
     trustScore: 92,
     pros: [],
@@ -150,7 +150,7 @@ test('ARBProposalBuilder: formats actionable PULSE payment handoff payload', () 
   assert.equal(handoff.action, 'PULSE:payment.execute');
   assert.equal(handoff.payment.amount, proposal.pricingBreakdown.totalPayable);
   assert.equal(handoff.payment.currency, 'INR');
-  assert.equal(handoff.merchant.domain, 'swiggy.com');
+  assert.equal(handoff.merchant.domain, 'dell.com');
   assert.ok(handoff.expiresAt);
 });
 

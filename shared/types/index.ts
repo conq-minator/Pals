@@ -165,7 +165,9 @@ export const ARBResearchPayloadSchema = z.object({
   minMerchantTrustScore: z.number().min(0).max(100).default(80),
   softPreferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   quantity: z.number().int().positive().optional(),
-  deliveryBy: z.string().optional()
+  deliveryBy: z.string().optional(),
+  budgetFlexibility: z.enum(['STRICT', 'FLEXIBLE_10_PERCENT', 'FLEXIBLE_20_PERCENT']).optional(),
+  allowAmbiguousGuess: z.boolean().optional()
 });
 export type ARBResearchPayload = z.infer<typeof ARBResearchPayloadSchema>;
 /** Caller-facing shape: fields with schema defaults may be omitted. */
@@ -198,7 +200,10 @@ export const ARBResearchResultSchema = z.object({
   totalListingsScanned: z.number().int().nonnegative(),
   qualifyingListingsFound: z.number().int().nonnegative(),
   topRecommendations: z.array(MerchantListingSchema),
-  arbitrationSummary: z.string()
+  arbitrationSummary: z.string(),
+  needsInput: z.boolean().optional(),
+  inputQuestion: z.string().optional(),
+  inputOptions: z.array(z.string()).optional()
 });
 export type ARBResearchResult = z.infer<typeof ARBResearchResultSchema>;
 

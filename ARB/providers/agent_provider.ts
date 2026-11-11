@@ -1,7 +1,6 @@
 import { MerchantListing, ARBResearchPayload } from '../../shared/types/index.js';
 import { IMerchantProvider } from './base_provider.js';
 import { ARBTrustScorer } from '../scoring/trust_scorer.js';
-import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 import { ARBCurrencyConverter } from '../currency/forex_converter.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
@@ -140,10 +139,6 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       let convertedTax = ARBCurrencyConverter.convert(item.tax * quantity, item.nativeCurrency, targetCurrency);
       const crossBorder = item.nativeCurrency !== targetCurrency;
 
-      // Deal Arbitration (Price Match / Concessions / Promo Vouchers)
-      const deal = ARBDealArbitrator.arbitrateDeal(item.domain, convertedBase, targetCurrency);
-      const effectivePrice = deal.discountedPrice;
-
       // Authentic landed cost calculation & pincode verification
       const landedCalc = ARBLandedCostCalculator.calculate({
         merchantDomain: item.domain,
@@ -152,7 +147,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         productTitle: item.title,
         category: payload.category,
         deliveryPostalCode: payload.deliveryPostalCode,
-        discountAmount: deal.successful ? deal.savingsAmount : 0,
+        discountAmount: 0,
         crossBorder
       });
 
@@ -172,7 +167,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         convertedTax = landedCalc.taxes + landedCalc.customsDuty;
       }
 
-      const rawLanded = effectivePrice + convertedShipping + convertedTax;
+      const rawLanded = convertedBase + convertedShipping + convertedTax;
       const totalLandedCost = targetCurrency.toUpperCase() === 'INR' ? Math.round(rawLanded) : Math.round(rawLanded * 100) / 100;
 
       // NOTE: budget and spec filtering are deliberately NOT applied here. The agent loop
@@ -188,7 +183,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       if (seenKeys.has(dedupeKey)) continue;
       seenKeys.add(dedupeKey);
 
-      const pros = deal.successful ? [...item.pros, deal.transparencyDescription] : [...item.pros];
+      const pros = [...item.pros];
       if (landedCalc.pincodeNote) {
         pros.push(landedCalc.pincodeNote);
       }

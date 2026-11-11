@@ -62,17 +62,36 @@ export class ARBAlternativeFinder {
     }
 
     // 2. Find best option within budget that relaxes one hardware requirement (e.g. 16GB instead of 32GB)
-    const withinBudget = scannedListings
+    const evaluatedWithinBudget = scannedListings
       .filter(l => l.totalLandedCost <= budgetCeiling)
-      .sort((a, b) => b.trustScore - a.trustScore || a.totalLandedCost - b.totalLandedCost);
+      .map(listing => {
+        const specs = ARBSpecNormalizer.normalize(listing.productTitle, undefined, payload.category);
+        const check = ARBSpecNormalizer.satisfiesConstraints(specs, mandatorySpecifications || {}, payload.category);
+        const totalMandatory = mandatorySpecifications ? Object.keys(mandatorySpecifications).length : 0;
+        const failedCount = check.failedReasons.length + check.unverifiedSpecs.length;
+        const satisfiedCount = Math.max(0, totalMandatory - failedCount);
+        return {
+          listing,
+          check,
+          satisfiedCount
+        };
+      })
+      .sort((a, b) =>
+        b.satisfiedCount - a.satisfiedCount ||
+        b.listing.trustScore - a.listing.trustScore ||
+        a.listing.totalLandedCost - b.listing.totalLandedCost
+      );
 
-    if (withinBudget.length > 0) {
-      const bestWithin = withinBudget[0];
+    if (evaluatedWithinBudget.length > 0) {
+      const best = evaluatedWithinBudget[0];
+      const bestWithin = best.listing;
       const delta = budgetCeiling - bestWithin.totalLandedCost;
+      const stepDownReason = best.check.failedReasons[0] ||
+        (best.check.unverifiedSpecs[0] ? `Unverified: ${best.check.unverifiedSpecs[0]}` : 'entry specifications');
       closestSpecStepDown = {
         listing: bestWithin,
         kind: 'SPEC_STEPDOWN',
-        explanation: `Fits within budget at ${bestWithin.totalLandedCost.toLocaleString()} ${currency} (${delta.toLocaleString()} ${currency} under budget), with entry specifications`,
+        explanation: `Fits within budget at ${bestWithin.totalLandedCost.toLocaleString()} ${currency} (${delta.toLocaleString()} ${currency} under budget), with step-down: ${stepDownReason}`,
         priceDelta: -delta
       };
     }
@@ -83,7 +102,7 @@ export class ARBAlternativeFinder {
       lines.push(`- **Closest match to your specs:** [${closestBudgetStretch.listing.productTitle}](${closestBudgetStretch.listing.productUrl}) at **${closestBudgetStretch.listing.totalLandedCost.toLocaleString()} ${currency}** on ${closestBudgetStretch.listing.merchantName} (+${closestBudgetStretch.priceDelta.toLocaleString()} ${currency} over your ${budgetCeiling.toLocaleString()} ${currency} budget).`);
     }
     if (closestSpecStepDown) {
-      lines.push(`- **Best alternative within your budget:** [${closestSpecStepDown.listing.productTitle}](${closestSpecStepDown.listing.productUrl}) at **${closestSpecStepDown.listing.totalLandedCost.toLocaleString()} ${currency}** on ${closestSpecStepDown.listing.merchantName}.`);
+      lines.push(`- **Best alternative within your budget:** [${closestSpecStepDown.listing.productTitle}](${closestSpecStepDown.listing.productUrl}) at **${closestSpecStepDown.listing.totalLandedCost.toLocaleString()} ${currency}** on ${closestSpecStepDown.listing.merchantName} (${closestSpecStepDown.explanation}).`);
     }
 
     return {

@@ -19,6 +19,7 @@ export interface UserPreferences {
 export class ARBPreferenceStore {
   private static instance: ARBPreferenceStore;
   private store = new Map<string, UserPreferences>();
+  private static readonly MAX_USERS = 1000;
 
   public static getInstance(): ARBPreferenceStore {
     if (!ARBPreferenceStore.instance) {
@@ -28,7 +29,7 @@ export class ARBPreferenceStore {
   }
 
   /**
-   * Sets or merges preferences for a given user.
+   * Sets or merges preferences for a given user with LRU eviction.
    */
   public setPreferences(userId: string, prefs: Partial<Omit<UserPreferences, 'userId' | 'updatedAt'>>): UserPreferences {
     const existing = this.store.get(userId) || {
@@ -43,15 +44,28 @@ export class ARBPreferenceStore {
       updatedAt: new Date().toISOString()
     };
 
+    if (this.store.has(userId)) {
+      this.store.delete(userId);
+    } else if (this.store.size >= ARBPreferenceStore.MAX_USERS) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey) this.store.delete(oldestKey);
+    }
+
     this.store.set(userId, updated);
     return updated;
   }
 
   /**
-   * Retrieves preferences for a user.
+   * Retrieves preferences for a user, updating LRU recency.
    */
   public getPreferences(userId: string): UserPreferences | undefined {
-    return this.store.get(userId);
+    const prefs = this.store.get(userId);
+    if (!prefs) return undefined;
+
+    // Refresh LRU position
+    this.store.delete(userId);
+    this.store.set(userId, prefs);
+    return prefs;
   }
 
   /**

@@ -65,6 +65,12 @@ export class ArbService {
       async (envelope) => this.refineResearch(envelope.payload.taskId, envelope.payload.refinementPrompt, envelope.correlationId)
     );
 
+    callsSystem.registerHandler<{ taskId: string; selectedOption: string }, ARBResearchResult>(
+      'ARB',
+      'research.answer',
+      async (envelope) => this.answerResearch(envelope.payload.taskId, envelope.payload.selectedOption, envelope.correlationId)
+    );
+
     callsSystem.registerHandler<{ listing: MerchantListing; taskId: string; options?: any }, PurchaseProposal>(
       'ARB',
       'purchase_prep.start',
@@ -179,6 +185,26 @@ export class ArbService {
       };
     }
     return refined;
+  }
+
+  /**
+   * Resumes paused research after user selects an ambiguity clarification option (Item 9).
+   */
+  public async answerResearch(
+    taskId: string,
+    selectedOption: string,
+    correlationId: string = taskId
+  ): Promise<ARBResearchResult> {
+    this.logger.info(`Answering ambiguity for task ${taskId}: "${selectedOption}"`);
+    const stateStore = ARBTaskStateStore.getInstance();
+    const existing = stateStore.get(taskId);
+    if (!existing) {
+      throw new Error(`Task '${taskId}' not found to resume with answer`);
+    }
+
+    const updatedPayload = stateStore.applyRefinement(taskId, selectedOption);
+    updatedPayload.allowAmbiguousGuess = true;
+    return this.conductResearch(updatedPayload, correlationId);
   }
 
   /**

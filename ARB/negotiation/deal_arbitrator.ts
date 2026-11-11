@@ -16,6 +16,7 @@ export interface ArbitrationAttempt {
   successful: boolean;
   dealType: DealType;
   couponCode?: string;
+  candidateCodes?: string[];
   originalPrice: number;
   discountedPrice: number;
   savingsAmount: number;
@@ -48,7 +49,8 @@ export interface CompetitorProof {
  */
 export class ARBDealArbitrator {
   /**
-   * Verified promotional codes registry for supported merchant platforms.
+   * Candidate promotional voucher index for supported merchant platforms.
+   * Vouchers are treated as unverified candidates until tested in a live cart.
    */
   private static merchantVoucherIndex: Record<string, Array<{ code: string; discountPercent?: number; fixedDiscount?: number; minSpend: number; description: string }>> = {
     'croma.com': [
@@ -133,47 +135,39 @@ export class ARBDealArbitrator {
 
     if (dynamicConfig && dynamicConfig.channel === 'PRICE_MATCH_DESK' && competitorProof && competitorProof.competitorPrice < basePrice) {
       const priceDiff = basePrice - competitorProof.competitorPrice;
-      const matchedPrice = competitorProof.competitorPrice;
 
       return {
         attempted: true,
-        successful: true,
+        successful: false, // Merchant has not yet agreed to match; reported as opportunity
         dealType: 'PRICE_MATCH_CONCESSION',
         originalPrice: basePrice,
-        discountedPrice: matchedPrice,
+        discountedPrice: basePrice, // Do not reduce quoted price without actual merchant agreement
         savingsAmount: priceDiff,
         currency,
-        transparencyDescription: `Price-Match Guarantee identified on ${cleanDomain}: Lower verified competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Potential savings: ${priceDiff} ${currency}.`
+        transparencyDescription: `Price-match opportunity on ${cleanDomain}: Lower verified competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Potential savings: ${priceDiff} ${currency}. (Subject to merchant price-match policy at checkout)`
       };
     }
 
     // ========================================================================
-    // CHANNEL 2: Promotional Code / Voucher Discovery (Arbitration, NOT Negotiation)
+    // CHANNEL 2: Promotional Code / Voucher Discovery (Candidate Vouchers, NOT Applied Without Cart Test)
     // ========================================================================
     const vouchers = this.merchantVoucherIndex[cleanDomain] || [];
-    for (const voucher of vouchers) {
-      if (basePrice >= voucher.minSpend) {
-        let savings = 0;
-        if (voucher.discountPercent) {
-          savings = Math.round(basePrice * voucher.discountPercent);
-        } else if (voucher.fixedDiscount) {
-          savings = voucher.fixedDiscount;
-        }
+    const qualifyingVouchers = vouchers.filter(v => basePrice >= v.minSpend);
 
-        if (savings > 0) {
-          return {
-            attempted: true,
-            successful: true,
-            dealType: 'PUBLIC_COUPON',
-            couponCode: voucher.code,
-            originalPrice: basePrice,
-            discountedPrice: basePrice - savings,
-            savingsAmount: savings,
-            currency,
-            transparencyDescription: `Applied verified merchant promotional voucher [${voucher.code}] for ${savings} ${currency} instant savings. (Public Promotional Code, not custom negotiation)`
-          };
-        }
-      }
+    if (qualifyingVouchers.length > 0) {
+      const bestVoucher = qualifyingVouchers[0];
+      return {
+        attempted: true,
+        successful: false, // Unverified until tested in live cart
+        dealType: 'PUBLIC_COUPON',
+        couponCode: bestVoucher.code,
+        candidateCodes: qualifyingVouchers.map(v => v.code),
+        originalPrice: basePrice,
+        discountedPrice: basePrice, // Zero price deduction without live cart test
+        savingsAmount: 0,
+        currency,
+        transparencyDescription: `Code ${bestVoucher.code} may apply. Try at checkout. (Public promotional code, untested in cart)`
+      };
     }
 
     // ========================================================================

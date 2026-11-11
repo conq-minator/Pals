@@ -117,6 +117,7 @@ const CATALOG: CatalogEntry[] = [
     pros: FOOD_PROS,
     cons: FOOD_CONS,
     offers: [
+      { domain: 'dominos.co.in', merchantName: "Domino's Pizza India", brand: "Domino's", title: "Domino's Classic Margherita Pizza (Regular)", price: 149, fee: 39, currency: INR, region: IN, eta: '30 mins' },
       { domain: 'dominos.co.in', merchantName: "Domino's Pizza India", brand: "Domino's", title: "Domino's Margherita Pizza (Medium, Hand Tossed)", price: 249, fee: 39, currency: INR, region: IN, eta: '30 mins' },
       { domain: 'dominos.co.in', merchantName: "Domino's Pizza India", brand: "Domino's", title: "Domino's Farmhouse Veg Pizza (Medium, Hand Tossed)", price: 459, fee: 39, currency: INR, region: IN, eta: '30 mins' },
       { domain: 'dominos.co.in', merchantName: "Domino's Pizza India", brand: "Domino's", title: "Domino's Chicken Pepperoni Pizza (Medium)", price: 499, fee: 39, currency: INR, region: IN, eta: '30 mins' },

@@ -1,7 +1,6 @@
 import { MerchantListing, ARBResearchPayload } from '../../shared/types/index.js';
 import { ARBCurrencyConverter } from '../currency/forex_converter.js';
 import { ARBTrustScorer } from '../scoring/trust_scorer.js';
-import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBProductVerifier } from './product_verifier.js';
@@ -196,10 +195,7 @@ export class ARBWebCrawler {
           const quantity = Math.max(1, payload.quantity ?? 1);
           const convertedPrice = ARBCurrencyConverter.convert(nativePrice * quantity, nativeCurrency, targetCurrency);
 
-          // 6. Deal Arbitration (Public Vouchers)
-          const deal = ARBDealArbitrator.arbitrateDeal(domain, convertedPrice, targetCurrency);
-
-          // 7. Authentic Landed Cost Calculation (Shipping thresholds, packaging, platform fees, taxes, pincode)
+          // 6. Authentic Landed Cost Calculation (Shipping thresholds, packaging, platform fees, taxes, pincode)
           const landedCalc = ARBLandedCostCalculator.calculate({
             merchantDomain: domain,
             itemPrice: convertedPrice,
@@ -207,7 +203,7 @@ export class ARBWebCrawler {
             productTitle: finalTitle,
             category,
             deliveryPostalCode,
-            discountAmount: deal.successful ? deal.savingsAmount : 0,
+            discountAmount: 0,
             crossBorder: nativeCurrency !== targetCurrency
           });
 
@@ -236,9 +232,6 @@ export class ARBWebCrawler {
             ? [`Verified live with merchant schema.org data on ${domain}`]
             : [`Candidate discovered via live web crawl on ${domain}`];
 
-          if (deal.successful) {
-            pros.push(deal.transparencyDescription);
-          }
           if (landedCalc.shippingFee === 0) {
             pros.push(`Free shipping expected under ${domain}'s standard policy (estimate)`);
           }

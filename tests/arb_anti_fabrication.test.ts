@@ -12,15 +12,17 @@ test('deal_arbitrator: does not fabricate fake MERCHANT_BOT chat transcripts', (
   const deal = ARBDealArbitrator.arbitrateDeal('croma.com', 55000, 'INR');
   assert.equal(deal.negotiationTranscript, undefined, 'Must not generate fake negotiation transcripts');
   assert.notEqual(deal.dealType, 'DYNAMIC_NEGOTIATED_DEAL', 'Must not claim dynamic negotiation occurred when none did');
-  if (deal.successful) {
-    assert.equal(deal.dealType, 'PUBLIC_COUPON', 'Discounts must be transparently labelled as public coupons');
-  }
+  assert.equal(deal.successful, false, 'Unverified vouchers must not be marked successful or auto-applied');
+  assert.equal(deal.discountedPrice, 55000, 'Unverified vouchers must not reduce the quoted price');
+  assert.ok(deal.candidateCodes?.includes('CRMA1000'));
 });
 
 test('deal_arbitrator: swiggy/zomato do not receive fabricated bot concessions', () => {
   const deal = ARBDealArbitrator.arbitrateDeal('swiggy.com', 500, 'INR');
   assert.equal(deal.negotiationTranscript, undefined);
   assert.notEqual(deal.dealType, 'DYNAMIC_NEGOTIATED_DEAL');
+  assert.equal(deal.successful, false, 'Candidate voucher is not applied without live cart test');
+  assert.equal(deal.discountedPrice, 500);
 });
 
 test('agent_provider: does not template requested 64GB RAM into 16GB laptop titles', async () => {
