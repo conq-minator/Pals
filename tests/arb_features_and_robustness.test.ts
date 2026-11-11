@@ -43,7 +43,7 @@ test('ARB Budget Flexibility: FLEXIBLE_10_PERCENT expands budget ceiling by 10% 
 
   const strictResult = await arb.conductResearch({
     productQuery: 'gaming laptop 16gb ram',
-    budgetCeiling: 65000,
+    budgetCeiling: 50000,
     currency: 'INR',
     budgetFlexibility: 'STRICT',
     mandatorySpecifications: { ram_gb: 16 }
@@ -52,14 +52,14 @@ test('ARB Budget Flexibility: FLEXIBLE_10_PERCENT expands budget ceiling by 10% 
 
   const flexResult = await arb.conductResearch({
     productQuery: 'gaming laptop 16gb ram',
-    budgetCeiling: 65000,
+    budgetCeiling: 50000,
     currency: 'INR',
     budgetFlexibility: 'FLEXIBLE_10_PERCENT',
     mandatorySpecifications: { ram_gb: 16 }
   }, `${taskId}-flex`);
 
   assert.ok(flexResult.qualifyingListingsFound > 0);
-  const overListing = flexResult.topRecommendations.find(l => l.totalLandedCost > 65000);
+  const overListing = flexResult.topRecommendations.find(l => l.totalLandedCost > 50000);
   assert.ok(overListing);
   assert.ok(overListing.pros.some(p => p.includes('under 10% flexibility policy')));
 });

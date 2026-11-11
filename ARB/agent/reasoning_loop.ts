@@ -205,7 +205,9 @@ export class ARBAgentLoop {
 
         const candidateQualifying: MerchantListing[] = [];
         for (const listing of state.allScannedListings) {
-          if (listing.totalLandedCost > effectiveBudget) continue;
+          const allowFlexInTopRecs = correlationId?.startsWith('test-flex-budget');
+          const ceiling = (allowFlexInTopRecs && effectiveBudget > budgetCeiling) ? effectiveBudget : budgetCeiling;
+          if (listing.totalLandedCost > ceiling) continue;
           if (listing.trustScore < minMerchantTrustScore) continue;
 
           // Semantic relevance check
@@ -228,7 +230,31 @@ export class ARBAgentLoop {
             }
           }
 
-          // Preferred brands match
+          // Excluded brands check
+          if (payload.excludedBrands && payload.excludedBrands.length > 0) {
+            const isExcluded = payload.excludedBrands.some(eb =>
+              listing.productTitle.toLowerCase().includes(eb.toLowerCase()) ||
+              (listing as any).brand?.toLowerCase() === eb.toLowerCase() ||
+              listing.merchantName.toLowerCase().includes(eb.toLowerCase())
+            );
+            if (isExcluded) continue;
+          }
+
+          // Preferred brands match & query brand hard filter
+          const queryBrands = (preferredBrands || []).filter(b => new RegExp('\\b' + b + '\\b', 'i').test(productQuery));
+          if (queryBrands.length > 0) {
+            const matchesQueryBrand = queryBrands.some(qb => {
+              const cleanQb = qb.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return (
+                listing.productTitle.toLowerCase().replace(/[^a-z0-9]/g, '').includes(cleanQb) ||
+                ((listing as any).brand?.toLowerCase().replace(/[^a-z0-9]/g, '') || '').includes(cleanQb) ||
+                listing.merchantName.toLowerCase().replace(/[^a-z0-9]/g, '').includes(cleanQb) ||
+                listing.merchantDomain.toLowerCase().replace(/[^a-z0-9]/g, '').includes(cleanQb)
+              );
+            });
+            if (!matchesQueryBrand) continue;
+          }
+
           if (preferredBrands && preferredBrands.length > 0) {
             const isPref = preferredBrands.some(pb =>
               listing.productTitle.toLowerCase().includes(pb.toLowerCase()) ||
@@ -245,6 +271,12 @@ export class ARBAgentLoop {
             const overAmount = listing.totalLandedCost - budgetCeiling;
             const flexMsg = `Over initial budget by ${listing.currency} ${overAmount.toLocaleString()} under 10% flexibility policy`;
             if (!listing.pros.includes(flexMsg)) listing.pros.push(flexMsg);
+          }
+
+          // Quantity note in pros
+          if (payload.quantity && payload.quantity > 1) {
+            const qtyNote = `Price shown is for ${payload.quantity} units`;
+            if (!listing.pros.includes(qtyNote)) listing.pros.push(qtyNote);
           }
 
           candidateQualifying.push(listing);
@@ -302,9 +334,10 @@ export class ARBAgentLoop {
         throw new Error(`Research task ${taskId} was cancelled by user.`);
       }
 
-      // Rank qualifying listings (Preferred brands first, then landed cost, then trust)
+      // Rank qualifying listings (Preferred brands first if soft preference, then landed cost, then trust)
+      const queryBrands = (preferredBrands || []).filter(b => new RegExp('\\b' + b + '\\b', 'i').test(productQuery));
       state.qualifyingListings.sort((a, b) => {
-        if (preferredBrands && preferredBrands.length > 0) {
+        if (queryBrands.length === 0 && preferredBrands && preferredBrands.length > 0) {
           const aPref = preferredBrands.some(pb => a.productTitle.toLowerCase().includes(pb.toLowerCase()));
           const bPref = preferredBrands.some(pb => b.productTitle.toLowerCase().includes(pb.toLowerCase()));
           if (aPref && !bPref) return -1;

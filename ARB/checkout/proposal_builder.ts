@@ -112,12 +112,16 @@ export class ARBProposalBuilder {
       expiresAt
     };
 
+    const isSearchPage = /search|\/menu|\?q=|\?k=|query=/.test(listing.productUrl);
+    const checkoutReady = !isSearchPage;
+
     const proposal: PurchaseProposal = {
       proposalId,
       taskId,
       merchantName: listing.merchantName,
       merchantDomain: listing.merchantDomain,
       checkoutUrl: listing.productUrl,
+      checkoutReady,
       productTitle: listing.productTitle,
       sku: listing.sku,
       variant: {

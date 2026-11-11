@@ -111,6 +111,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'pizza',
     vertical: 'food_delivery',
     aliases: ['pizza', 'pizzas', 'margherita', 'pepperoni', 'farmhouse pizza', 'dominos', 'domino s', 'pizza hut'],
+    blockers: ['pizza cutter', 'cutter'],
     searchTerm: 'pizza',
     taxRate: 0.05,
     specs: { cuisine: 'Italian / Fast Food', serves: '1-2 (medium)' },
@@ -137,6 +138,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'naan',
     vertical: 'food_delivery',
     aliases: ['naan', 'nan bread', 'butter naan', 'garlic naan', 'tandoori naan', 'plain naan', 'cheese naan', 'kulcha', 'tandoori roti', 'roti'],
+    blockers: ['naan maker', 'maker'],
     searchTerm: 'naan',
     taxRate: 0.05,
     specs: { cuisine: 'North Indian Tandoor', serves: '1 piece' },
@@ -162,6 +164,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'burger',
     vertical: 'food_delivery',
     aliases: ['burger', 'burgers', 'whopper', 'mcaloo', 'mcchicken', 'cheeseburger', 'zinger'],
+    blockers: ['burger press', 'press'],
     searchTerm: 'burger',
     taxRate: 0.05,
     specs: { cuisine: 'Fast Food', serves: '1' },
@@ -202,7 +205,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'milk',
     vertical: 'quick_commerce',
     aliases: ['milk', 'toned milk', 'full cream milk', 'amul taaza', 'amul milk'],
-    blockers: ['milkshake', 'milk shake', 'chocolate milk powder', 'milk powder'],
+    blockers: ['milkshake', 'milk shake', 'chocolate milk powder', 'milk powder', 'milk frother', 'frother'],
     searchTerm: 'amul taaza milk',
     specs: { type: 'Daily Fresh Dairy', pack: '1 Litre' },
     pros: QC_PROS,
@@ -220,7 +223,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'eggs',
     vertical: 'quick_commerce',
     aliases: ['egg', 'eggs', 'anda', 'brown eggs', 'farm eggs'],
-    blockers: ['egg curry', 'egg biryani', 'egg roll', 'eggless'],
+    blockers: ['egg curry', 'egg biryani', 'egg roll', 'eggless', 'egg boiler', 'boiler'],
     searchTerm: 'eggs',
     specs: { type: 'Farm Fresh Eggs', pack: '12 pcs' },
     pros: QC_PROS,
@@ -237,7 +240,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'bread',
     vertical: 'quick_commerce',
     aliases: ['bread', 'brown bread', 'white bread', 'multigrain bread', 'sandwich bread', 'pav'],
-    blockers: ['garlic bread', 'bread pakora', 'naan bread', 'nan bread'],
+    blockers: ['garlic bread', 'bread pakora', 'naan bread', 'nan bread', 'bread knife', 'knife'],
     searchTerm: 'bread',
     specs: { type: 'Fresh Bakery', pack: '400 g loaf' },
     pros: QC_PROS,
@@ -254,7 +257,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'butter',
     vertical: 'quick_commerce',
     aliases: ['butter', 'amul butter', 'salted butter', 'unsalted butter'],
-    blockers: ['butter naan', 'butter chicken', 'peanut butter', 'butter masala', 'butter paneer', 'paneer butter', 'butter milk', 'buttermilk', 'butter scotch', 'butterscotch', 'cocoa butter', 'shea butter'],
+    blockers: ['butter naan', 'butter chicken', 'peanut butter', 'butter masala', 'butter paneer', 'paneer butter', 'butter milk', 'buttermilk', 'butter scotch', 'butterscotch', 'cocoa butter', 'shea butter', 'butter paper', 'paper'],
     searchTerm: 'amul butter',
     specs: { type: 'Dairy', pack: '100 g' },
     pros: QC_PROS,
@@ -291,6 +294,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'bandage',
     vertical: 'pharmacy',
     aliases: ['bandage', 'bandages', 'band aid', 'band aids', 'bandaid', 'bandaids', 'plaster', 'plasters', 'adhesive bandage', 'crepe bandage', 'elastic bandage', 'gauze', 'first aid', 'hansaplast'],
+    blockers: ['bandage dress', 'dress'],
     searchTerm: 'bandage',
     specs: { type: 'First Aid / Wound Care' },
     pros: RX_PROS,
@@ -337,7 +341,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'desktop_ram',
     vertical: 'pc_components',
     aliases: ['ddr5', 'ddr4', 'ddr5 ram', 'ddr4 ram', 'ram stick', 'ram sticks', 'ram kit', 'desktop ram', 'memory kit', 'dimm', 'ram module', 'ram upgrade', 'ram'],
-    blockers: ['laptop', 'notebook', 'macbook', 'phone', 'mobile', 'smartphone', 'tablet', 'ipad', 'sodimm', 'so dimm', 'mac mini', 'gpu', 'graphics card'],
+    blockers: ['laptop', 'notebook', 'macbook', 'phone', 'mobile', 'smartphone', 'tablet', 'ipad', 'sodimm', 'so dimm', 'mac mini', 'gpu', 'graphics card', 'mount', 'ram mount', '1500', 'truck', 'parts'],
     searchTerm: 'ddr5 ram',
     warrantyMonths: 120,
     specs: { form_factor: 'Desktop DIMM (288-pin)' },
@@ -364,6 +368,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'laptop_ram',
     vertical: 'pc_components',
     aliases: ['sodimm', 'so dimm', 'laptop ram', 'ram for laptop', 'ram for my laptop', 'laptop memory', 'notebook ram', 'laptop ram upgrade'],
+    blockers: ['mount', 'ram mount', '1500', 'truck', 'parts'],
     searchTerm: 'ddr5 sodimm laptop ram',
     warrantyMonths: 120,
     specs: { form_factor: 'Laptop SO-DIMM (262-pin)' },
@@ -437,6 +442,9 @@ export class ARBEverydayCatalog {
   public static isOfferForQuery(query: string, listingTitle: string): boolean {
     const entry = this.matchEntry(query);
     if (!entry) return false;
+    const tokens = ARBQueryMatcher.extractCoreTokens(query);
+    const ACCESSORY_WORDS = ['mount', 'parts', 'dress', 'paper', 'knife', 'frother', 'cutter', 'press', 'maker', 'boiler', 'cover', 'bag', 'stand', 'case'];
+    if (tokens.some(t => ACCESSORY_WORDS.includes(t))) return false;
     const title = listingTitle.trim().toLowerCase();
     return entry.offers.some(o => o.title.toLowerCase() === title);
   }

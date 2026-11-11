@@ -38,6 +38,7 @@ export interface ExtractedRequirements {
   deliveryPostalCode?: string;
   deliveryBy?: string;
   minMerchantTrustScore: number;
+  noBudgetStated?: boolean;
 }
 
 /**
@@ -144,6 +145,7 @@ export class ARBQueryExtractor {
     // 3. Extract Budget & Budget Flexibility
     let budgetCeiling = defaultBudget;
     let budgetFlexibility: 'STRICT' | 'FLEXIBLE_10_PERCENT' | 'FLEXIBLE_20_PERCENT' = 'STRICT';
+    let hasExplicitBudget = false;
 
     if (/\b(?:strictly under|strict budget|hard cap|no more than)\b/i.test(lower)) {
       budgetFlexibility = 'STRICT';
@@ -151,58 +153,81 @@ export class ARBQueryExtractor {
       budgetFlexibility = 'FLEXIBLE_10_PERCENT';
     }
 
-    const budgetRegex = /(?:under|below|less than|max(?:imum)?|budget(?: of)?|upto|within|around)\s*(?:(₹|\$|€|£|rs\.?|inr|usd|eur|gbp)\s*)?([0-9,]+(?:\.[0-9]{1,2})?)\s*(k|thousand|lakh|lac)?\s*(inr|usd|eur|gbp|₹|\$|€|£|\/-)?/i;
-    const budgetMatch = text.match(budgetRegex);
+    const timeLookahead = '(?!(?:\\s*(?:sec|second|min|minute|hr|hour|day|week|month|year)s?\\b))';
+    const foundBudgets: number[] = [];
 
-    if (budgetMatch) {
-      const rawSymbol = budgetMatch[1] || budgetMatch[5];
+    // Pattern 1: Keywords like under, below, max, upto, within, around, for, at, budget
+    const p1 = new RegExp(`(?:under|below|less than|max(?:imum)?|budget(?: of)?|upto|within|around|for|at)\\s*(?:(₹|\\$|€|£|rs\\.?|inr|usd|eur|gbp)\\s*)?\\b([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(k|thousand|lakh|lac)?\\b${timeLookahead}\\s*(inr|usd|eur|gbp|rupees?|bucks?|₹|\\$|€|£|\\/-)?`, 'gi');
+    let m: RegExpExecArray | null;
+    while ((m = p1.exec(text)) !== null) {
+      const rawSymbol = m[1] || m[4];
       if (rawSymbol && rawSymbol !== '/-') {
         const cleanSymbol = rawSymbol.toLowerCase().replace(/\./g, '');
-        currency = this.currencySymbols[cleanSymbol] || currency;
+        if (this.currencySymbols[cleanSymbol]) currency = this.currencySymbols[cleanSymbol];
+        else if (/rupees?|bucks?/i.test(cleanSymbol)) currency = 'INR';
       }
-      let rawNumber = budgetMatch[2].replace(/,/g, '');
-      let parsed = parseFloat(rawNumber);
-      const multiplier = (budgetMatch[3] || '').toLowerCase();
-      if (multiplier === 'k' || multiplier === 'thousand') {
-        parsed *= 1000;
-      } else if (multiplier === 'lakh' || multiplier === 'lac') {
-        parsed *= 100000;
-      }
+      let parsed = parseFloat(m[2].replace(/,/g, ''));
+      const mult = (m[3] || '').toLowerCase();
+      if (mult === 'k' || mult === 'thousand') parsed *= 1000;
+      else if (mult === 'lakh' || mult === 'lac') parsed *= 100000;
       if (!isNaN(parsed) && parsed > 0) {
-        budgetCeiling = parsed;
-      }
-    } else {
-      // Fallback: Check for raw currency expressions like "₹75000", "75k inr", "$1200", "$30"
-      const fallbackRegex = /(?:(₹|\$|€|£|rs\.?|inr|usd|eur|gbp)\s*)([0-9,]+(?:\.[0-9]{1,2})?)\s*(k)?/i;
-      const fbMatch = text.match(fallbackRegex);
-      if (fbMatch) {
-        const cleanSymbol = fbMatch[1].toLowerCase().replace(/\./g, '');
-        currency = this.currencySymbols[cleanSymbol] || currency;
-        let val = parseFloat(fbMatch[2].replace(/,/g, ''));
-        if (fbMatch[3]?.toLowerCase() === 'k') val *= 1000;
-        if (!isNaN(val) && val > 0) budgetCeiling = val;
+        foundBudgets.push(parsed);
+        hasExplicitBudget = true;
       }
     }
 
+    // Pattern 2: Currency symbol prefixed numbers e.g. ₹75,000, $300
+    const p2 = new RegExp(`(?:(₹|\\$|€|£|rs\\.?|inr|usd|eur|gbp)\\s*)\\b([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(k)?\\b${timeLookahead}`, 'gi');
+    while ((m = p2.exec(text)) !== null) {
+      const cleanSymbol = m[1].toLowerCase().replace(/\./g, '');
+      if (this.currencySymbols[cleanSymbol]) currency = this.currencySymbols[cleanSymbol];
+      let val = parseFloat(m[2].replace(/,/g, ''));
+      if (m[3]?.toLowerCase() === 'k') val *= 1000;
+      if (!isNaN(val) && val > 0) {
+        foundBudgets.push(val);
+        hasExplicitBudget = true;
+      }
+    }
+
+    // Pattern 3: Currency word suffixed numbers e.g. "300 rupees", "500 inr"
+    const p3 = new RegExp(`\\b([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(k|thousand|lakh|lac)?\\b${timeLookahead}\\s*(inr|usd|eur|gbp|rupees?|bucks?|₹|\\$|€|£|\\/-)\\b`, 'gi');
+    while ((m = p3.exec(text)) !== null) {
+      const rawSymbol = m[3];
+      if (rawSymbol && rawSymbol !== '/-') {
+        const cleanSymbol = rawSymbol.toLowerCase().replace(/\./g, '');
+        if (this.currencySymbols[cleanSymbol]) currency = this.currencySymbols[cleanSymbol];
+        else if (/rupees?|bucks?/i.test(cleanSymbol)) currency = 'INR';
+      }
+      let val = parseFloat(m[1].replace(/,/g, ''));
+      const mult = (m[2] || '').toLowerCase();
+      if (mult === 'k' || mult === 'thousand') val *= 1000;
+      else if (mult === 'lakh' || mult === 'lac') val *= 100000;
+      if (!isNaN(val) && val > 0) {
+        foundBudgets.push(val);
+        hasExplicitBudget = true;
+      }
+    }
+
+    if (foundBudgets.length > 0) {
+      budgetCeiling = Math.min(...foundBudgets);
+    }
+
     // Adjust default budget if target currency is USD/EUR/GBP and default was in INR
-    if (budgetCeiling === 200000 && (currency === 'USD' || currency === 'EUR' || currency === 'GBP')) {
+    if (!hasExplicitBudget && budgetCeiling === 200000 && (currency === 'USD' || currency === 'EUR' || currency === 'GBP')) {
       budgetCeiling = 2500;
     }
 
     // 4. Extract Quantity
     let quantity = 1;
-    const qtyMatch = lower.match(/\b([1-9][0-9]?)\s*(?:pizzas?|items?|units?|packs?|boxes?|burgers?|bottles?|strips?|orders?)\b/i) ||
+    // Note: "30 pack" or "pack of 30" is a pack size, not an order count.
+    const qtyMatch = lower.match(/\b([1-9][0-9]?)\s*(?:pizzas?|items?|units?|boxes?|burgers?|bottles?|orders?)\b/i) ||
                      lower.match(/\b(?:qty|quantity|count)\s*[:=]?\s*([1-9][0-9]?)\b/i) ||
-                     lower.match(/\b(two|three|four|five|six|ten|dozen)\s+(?:pizzas?|items?|units?|packs?|boxes?|orders?)\b/i);
+                     lower.match(/\b(two|three|four|five|six|ten|dozen)\s+(?:pizzas?|items?|units?|boxes?|orders?)\b/i);
     if (qtyMatch) {
       const wordMap: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, ten: 10, dozen: 12 };
       quantity = wordMap[qtyMatch[1].toLowerCase()] || parseInt(qtyMatch[1], 10) || 1;
     } else {
-      // General form: a small count at the start of the request or right after an ordering verb,
-      // followed by a product word ("3 butter naan", "order 2 pepperoni pizzas").
-      // A number glued to / followed by a unit is a spec or pack size, not a count
-      // ("16gb ram", "15 inch laptop", "1 litre milk", "12 eggs", "10 strips").
-      const NOT_A_COUNT = '(?:gb|tb|mb|hz|mhz|mg|kg|g|gm|gms|ml|l|ltr|litres?|liters?|inch|inches|in|cm|mm|m|x|k|w|v|mah|pcs?|pieces?|eggs?|strips?|tablets?|capsules?|years?|months?|days?|hours?|mins?|minutes?|star|th|st|nd|rd|gen|series|pro|plus|max)\\b';
+      const NOT_A_COUNT = '(?:gb|tb|mb|hz|mhz|mg|kg|g|gm|gms|ml|l|ltr|litres?|liters?|inch|inches|in|cm|mm|m|x|k|w|v|mah|pcs?|pieces?|eggs?|strips?|tablets?|capsules?|years?|months?|days?|hours?|mins?|minutes?|star|th|st|nd|rd|gen|series|pro|plus|max|packs?)\\b';
       const generalQty = lower.match(new RegExp(`(?:^|\\b(?:order|buy|get|send|want|need|book)\\s+(?:me\\s+)?)([1-9][0-9]?)\\s+(?!${NOT_A_COUNT})[a-z]`, 'i'));
       if (generalQty) {
         const n = parseInt(generalQty[1], 10);
@@ -214,11 +239,13 @@ export class ARBQueryExtractor {
     const mandatorySpecs: Record<string, string | number | boolean> = {};
     const softPreferences: Record<string, string | number | boolean> = {};
 
-    // Dietary requirement ("veg pizza", "pure veg", "non-veg burger", "vegan")
+    // Dietary requirement ("veg pizza", "pure veg", "non-veg burger", "vegan", "without chicken")
     if (/\bnon[- ]?veg(?:etarian)?\b/i.test(lower)) {
       mandatorySpecs['dietary'] = 'non-veg';
     } else if (/\bvegan\b/i.test(lower)) {
       mandatorySpecs['dietary'] = 'vegan';
+    } else if (/\b(?:without|no)\s+(?:chicken|meat|beef|pork|fish|pepperoni|mutton|non[- ]?veg)\b/i.test(lower)) {
+      mandatorySpecs['dietary'] = 'veg';
     } else if (/\b(?:veg|vegetarian|pure veg|eggless)\b/i.test(lower)) {
       mandatorySpecs['dietary'] = 'veg';
     }
@@ -306,6 +333,15 @@ export class ARBQueryExtractor {
 
     for (const brand of this.commonBrands) {
       const bLower = brand.toLowerCase();
+      if (bLower === 'apple') {
+        const isTech = ['smartphones', 'laptops', 'monitors', 'peripherals', 'pc_components'].includes(category);
+        const hasAppleProduct = /\b(?:iphone|ipad|mac|macbook|airpods|watch|vision|ios|macos)\b/i.test(lower);
+        const isFood = category === 'grocery' || category === 'food' || category === 'food_delivery' || category === 'quick_commerce' || /\b(?:juice|fruit|pie|cider|sauce|tree|flavour|flavor)\b/i.test(lower);
+        if ((!isTech && !hasAppleProduct) || isFood) {
+          continue;
+        }
+      }
+
       const directNegativeRegex = new RegExp(`(?:not|no|avoid|except|without|exclude|never)\\s+(?:a\\s+)?${bLower}`, 'i');
       
       if (directNegativeRegex.test(lower) || (exclusionText && exclusionText.includes(bLower))) {
@@ -342,7 +378,7 @@ export class ARBQueryExtractor {
 
     // 9. Delivery Timeline
     let deliveryBy: string | undefined;
-    if (/\b(?:urgent|fastest|asap|instant|10\s*mins?|30\s*mins?)\b/i.test(lower)) {
+    if (/\b(?:urgent|fastest|asap|instant|[0-9]+\s*min(?:ute)?s?)\b/i.test(lower)) {
       deliveryBy = 'instant';
     } else if (/\b(?:today|same\s*day)\b/i.test(lower)) {
       deliveryBy = 'same-day';
@@ -370,7 +406,8 @@ export class ARBQueryExtractor {
       targetMerchants,
       deliveryPostalCode,
       deliveryBy,
-      minMerchantTrustScore
+      minMerchantTrustScore,
+      noBudgetStated: !hasExplicitBudget
     };
   }
 
@@ -467,7 +504,8 @@ export class ARBQueryExtractor {
       deliveryPostalCode: req.deliveryPostalCode,
       deliveryBy: req.deliveryBy,
       minMerchantTrustScore: req.minMerchantTrustScore,
-      budgetFlexibility: req.budgetFlexibility
+      budgetFlexibility: req.budgetFlexibility,
+      noBudgetStated: req.noBudgetStated
     };
   }
 }

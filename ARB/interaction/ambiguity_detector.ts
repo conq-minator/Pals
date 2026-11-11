@@ -43,8 +43,11 @@ export class ARBAmbiguityDetector {
     }
 
     // 2. Ambiguous Pizza Query
-    // Bare "pizza" or "order pizza" without topping, size or veg/non-veg preference
-    if (clean === 'pizza' || clean === 'order pizza' || clean === 'buy pizza' || clean === 'pizza delivery') {
+    if (
+      /\bpizzas?\b/i.test(clean) &&
+      !/\b(?:margherita|pepperoni|paneer|farmhouse|chicken|bbq|veg|non[- ]?veg|vegan|capsicum|corn|cheese)\b/i.test(clean) &&
+      !/\b(?:cutter|pan|oven|stone|box|peel|paddle|tray|board|press)\b/i.test(clean)
+    ) {
       return {
         isAmbiguous: true,
         question: 'What kind of pizza are you looking for?',
@@ -58,8 +61,11 @@ export class ARBAmbiguityDetector {
     }
 
     // 3. Ambiguous Bandage Query
-    // Bare "bandage" without specifying first-aid strips vs sprain crepe bandage
-    if (clean === 'bandage' || clean === 'buy bandage' || clean === 'first aid bandage') {
+    if (
+      /\b(?:bandages?|band aid|band aids|bandaid|plaster)\b/i.test(clean) &&
+      !/\b(?:crepe|elastic|sprain|washproof|strips?|fabric|gauze)\b/i.test(clean) &&
+      !clean.includes('dress')
+    ) {
       return {
         isAmbiguous: true,
         question: 'What type of bandage do you need?',

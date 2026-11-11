@@ -15,7 +15,9 @@ export interface RelevanceScoreResult {
 export class ARBRelevanceScorer {
   private static ACCESSORY_KEYWORDS = new Set([
     'case', 'cover', 'tempered glass', 'screen protector', 'skin',
-    'pouch', 'sleeve', 'strap', 'stand', 'mount', 'cleaning kit'
+    'pouch', 'sleeve', 'strap', 'stand', 'mount', 'cleaning kit',
+    'cutter', 'maker', 'boiler', 'knife', 'frother', 'press',
+    'paper', 'dress', 'bag', 'parts'
   ]);
 
   private static COMPONENT_VS_SYSTEM_MAP: Record<string, { systemTokens: string[]; componentTokens: string[] }> = {
@@ -38,27 +40,46 @@ export class ARBRelevanceScorer {
     const titleLower = listingTitle.toLowerCase();
     const queryLower = productQuery.toLowerCase();
 
-    // 0. A curated catalog entry matched through an alias/synonym is relevant by construction.
-    if (ARBQueryMatcher.catalogVouches(productQuery, listingTitle)) {
-      return { isRelevant: true, score: 1.0, matchedTokens: queryTokens };
+    // 1. Accessory Guard (symmetric check):
+    const queryAccessoryKeywords = Array.from(this.ACCESSORY_KEYWORDS).filter(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, 'i');
+      return regex.test(queryLower);
+    });
+    const queryWantsAccessory = queryAccessoryKeywords.length > 0;
+
+    const listingAccessoryKeywords = Array.from(this.ACCESSORY_KEYWORDS).filter(kw => {
+      const regex = new RegExp(`\\b${kw}\\b`, 'i');
+      return regex.test(titleLower);
+    });
+    const isAccessoryListing = listingAccessoryKeywords.length > 0;
+
+    if (!queryWantsAccessory && isAccessoryListing) {
+      return {
+        isRelevant: false,
+        score: 0.1,
+        rejectionReason: 'Listing identified as an accessory, not the primary requested product.',
+        matchedTokens: []
+      };
     }
 
-    // 1. Accessory Guard:
-    // If the query is NOT looking for an accessory, but the listing is an accessory, reject.
-    const queryWantsAccessory = Array.from(this.ACCESSORY_KEYWORDS).some(kw => queryLower.includes(kw));
-    if (!queryWantsAccessory) {
-      const isAccessoryListing = Array.from(this.ACCESSORY_KEYWORDS).some(kw => {
+    if (queryWantsAccessory) {
+      const matchesAccessory = queryAccessoryKeywords.some(kw => {
         const regex = new RegExp(`\\b${kw}\\b`, 'i');
         return regex.test(titleLower);
       });
-      if (isAccessoryListing) {
+      if (!matchesAccessory) {
         return {
           isRelevant: false,
-          score: 0.1,
-          rejectionReason: 'Listing identified as an accessory, not the primary requested product.',
+          score: 0.0,
+          rejectionReason: 'User requested an accessory/tool, but listing is the primary product.',
           matchedTokens: []
         };
       }
+    }
+
+    // 0. A curated catalog entry matched through an alias/synonym is relevant by construction.
+    if (ARBQueryMatcher.catalogVouches(productQuery, listingTitle)) {
+      return { isRelevant: true, score: 1.0, matchedTokens: queryTokens };
     }
 
     // 2. Component vs System Confusion Guard:
@@ -80,18 +101,26 @@ export class ARBRelevanceScorer {
       }
     }
 
-    // 3. Token Overlap & Weighting
+    // 3. Token Overlap & Category Weighting
     const matchedTokens: string[] = [];
     let weightedMatches = 0;
     let totalWeight = 0;
 
+    const isLaptopCategory = category === 'laptops' || /laptop|gaming|notebook/i.test(queryLower);
+    const isLaptopListing = /rtx|gtx|intel core|ryzen|gaming laptop|vivobook|thin 15|victus|loq|tuf|nitro|legion|macbook/i.test(titleLower);
+
     for (const token of queryTokens) {
-      // Weight numeric model identifiers or key nouns higher
       const isModelNumber = /[0-9]/.test(token);
       const weight = isModelNumber ? 2.0 : 1.0;
       totalWeight += weight;
 
       if (titleLower.includes(token)) {
+        matchedTokens.push(token);
+        weightedMatches += weight;
+      } else if (isLaptopCategory && isLaptopListing && (token === 'laptop' || token === 'notebook')) {
+        matchedTokens.push(token);
+        weightedMatches += weight;
+      } else if (isLaptopCategory && isLaptopListing && token === 'gaming' && /rtx|gtx|gaming|144hz|120hz|165hz/i.test(titleLower)) {
         matchedTokens.push(token);
         weightedMatches += weight;
       }

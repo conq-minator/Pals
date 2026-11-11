@@ -376,11 +376,11 @@ export class ARBSpecNormalizer {
 
     // 8. Form Factor (formFactor: desktop vs sodimm)
     if (mandatory['form_factor'] && typeof mandatory['form_factor'] === 'string') {
-      const reqForm = mandatory['form_factor'].toLowerCase();
+      const reqForm = mandatory['form_factor'].toLowerCase().replace(/[^a-z0-9]/g, '');
       if (!specs.formFactor) {
         unverifiedSpecs.push(`Form factor (${mandatory['form_factor']} required)`);
-      } else if (specs.formFactor !== reqForm) {
-        failedReasons.push(`Form factor ${specs.formFactor} does not match required ${reqForm}`);
+      } else if (specs.formFactor.replace(/[^a-z0-9]/g, '') !== reqForm) {
+        failedReasons.push(`Form factor ${specs.formFactor} does not match required ${mandatory['form_factor']}`);
       }
     }
 

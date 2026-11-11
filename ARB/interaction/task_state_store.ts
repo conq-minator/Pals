@@ -6,6 +6,7 @@ export interface ResearchTaskState {
   productQuery: string;
   payload: ARBResearchPayload;
   qualifyingListings: MerchantListing[];
+  allScannedListings?: MerchantListing[];
   scannedListingsCount: number;
   arbitrationSummary: string;
   updatedAt: string;
@@ -83,6 +84,15 @@ export class ARBTaskStateStore {
     const payload = structuredClone(existing.payload);
     const lower = refinementText.toLowerCase().trim();
 
+    // 0. Switch product query entirely (e.g. "show me garlic naan instead")
+    const switchMatch = lower.match(/(?:show me|instead of|switch to)\s+([a-z0-9\s]+?)(?:\s+instead)?$/i);
+    if (switchMatch) {
+      payload.productQuery = switchMatch[1].trim();
+      payload.mandatorySpecifications = {};
+      delete payload.category;
+      return payload;
+    }
+
     // 1. "Cheaper" or Lower Budget
     if (lower.includes('cheaper') || lower.includes('lower price') || lower.includes('less expensive')) {
       if (existing.qualifyingListings.length > 0) {
@@ -95,15 +105,20 @@ export class ARBTaskStateStore {
         payload.budgetCeiling = Math.round(payload.budgetCeiling * 0.8);
       }
     } else {
-      // Direct budget ceiling update (e.g. "under 60000" or "below 500")
-      const numMatch = lower.match(/(?:under|below|max|upto)\s*([0-9,]+)/i);
+      // Direct budget ceiling update (e.g. "under 60000" or "below 500" or "budget 400")
+      const numMatch = lower.match(/(?:under|below|max|upto|budget(?:\s*of|\s*is)?)\s*([0-9,]+)/i);
       if (numMatch) {
         payload.budgetCeiling = parseFloat(numMatch[1].replace(/,/g, ''));
       }
     }
 
-    // 2. Dietary Filter ("only veg", "vegetarian", "no chicken")
-    if (lower.includes('only veg') || lower.includes('vegetarian') || lower.includes('pure veg')) {
+    // 2. Dietary Filter ("only veg", "vegetarian", "no chicken", "without chicken")
+    if (
+      /(?:without|no)\s+(?:chicken|meat|beef|pork|fish|non[- ]?veg)/i.test(lower) ||
+      lower.includes('only veg') ||
+      lower.includes('vegetarian') ||
+      lower.includes('pure veg')
+    ) {
       payload.mandatorySpecifications = {
         ...payload.mandatorySpecifications,
         dietary: 'veg'
@@ -115,13 +130,26 @@ export class ARBTaskStateStore {
       };
     }
 
-    // 3. Hardware Spec Updates (e.g. "same but 32GB", "with 1TB SSD")
-    const ramMatch = lower.match(/([0-9]{1,3})\s*gb\s*(?:ram)?/i);
-    if (ramMatch) {
+    // 3. Hardware Spec Updates (e.g. "same but 32GB", "with 1TB SSD", "with rtx 4050")
+    const rtxMatch = lower.match(/(rtx\s*[0-9]{4}(?:\s*ti)?|gtx\s*[0-9]{4})/i);
+    if (rtxMatch) {
       payload.mandatorySpecifications = {
         ...payload.mandatorySpecifications,
-        ram_gb: parseInt(ramMatch[1], 10)
+        gpu: rtxMatch[1]
       };
+      if (!payload.productQuery.toLowerCase().includes(rtxMatch[1].toLowerCase())) {
+        payload.productQuery = `${payload.productQuery} ${rtxMatch[1]}`;
+      }
+    }
+
+    const ramMatch = lower.match(/(?:same but\s+)?([0-9]{1,3})\s*gb\s*(?:ram)?/i);
+    if (ramMatch) {
+      const newGb = parseInt(ramMatch[1], 10);
+      payload.mandatorySpecifications = {
+        ...payload.mandatorySpecifications,
+        ram_gb: newGb
+      };
+      payload.productQuery = payload.productQuery.replace(/\b[0-9]{1,3}\s*gb\b/gi, `${newGb}gb`);
     }
 
     // Storage needs an explicit storage word or a TB unit; a bare "32gb" is RAM, not storage.
@@ -136,9 +164,37 @@ export class ARBTaskStateStore {
       };
     }
 
-    // 4. Merchant Inclusions / Exclusions ("skip Flipkart", "exclude Amazon", "only from Croma")
-    const skipMatch = lower.match(/(?:skip|exclude|avoid|without|not from|no)\s+([a-z0-9\s,&']+)/i);
-    const isMerchantSkip = skipMatch && !/^(?:chicken|meat|egg|onion|garlic)/.test(skipMatch[1].trim());
+    // 4. Quantity update (e.g. "make it 3")
+    const qtyMatch = lower.match(/(?:make it|quantity|qty|count)\s*([1-9][0-9]?)/i);
+    if (qtyMatch) {
+      payload.quantity = parseInt(qtyMatch[1], 10);
+    }
+
+    // 5. Postal Code / Pincode (e.g. "deliver to 560001")
+    const pinMatch = lower.match(/(?:deliver to|pincode|postal|zip)\s*([0-9]{5,6})/i);
+    if (pinMatch) {
+      payload.deliveryPostalCode = pinMatch[1];
+    }
+
+    // 6. Brand Inclusions / Exclusions ("only lenovo", "no hp")
+    const brandOnlyMatch = lower.match(/\bonly\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)\b/i);
+    if (brandOnlyMatch) {
+      const ob = brandOnlyMatch[1];
+      const formatted = ob.charAt(0).toUpperCase() + ob.slice(1).toLowerCase();
+      payload.preferredBrands = [formatted];
+      const cleanedQuery = payload.productQuery.replace(new RegExp('\\b' + ob + '\\b', 'gi'), '').trim();
+      payload.productQuery = `${formatted.toLowerCase()} ${cleanedQuery}`;
+    }
+
+    const brandExcludeMatch = lower.match(/\bno\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)\b/i);
+    if (brandExcludeMatch) {
+      const eb = brandExcludeMatch[1].toUpperCase();
+      payload.excludedBrands = Array.from(new Set([...(payload.excludedBrands || []), eb]));
+    }
+
+    // 7. Merchant Inclusions / Exclusions ("skip Flipkart", "exclude Amazon", "only from Croma")
+    const skipMatch = lower.match(/(?:skip|exclude|avoid|without|not from)\s+([a-z0-9\s,&']+)/i);
+    const isMerchantSkip = skipMatch && !/^(?:chicken|meat|egg|onion|garlic|hp|dell|lenovo)/.test(skipMatch[1].trim());
     if (skipMatch && isMerchantSkip) {
       // Any merchant can be skipped: names are matched against merchant domain/name by the providers.
       const names = skipMatch[1]
@@ -162,7 +218,7 @@ export class ARBTaskStateStore {
     }
 
     const onlyMatch = lower.match(/(?:only from|only on|from|on)\s+([a-z0-9']+(?:\s+hut)?)/i);
-    if (onlyMatch && !skipMatch) {
+    if (onlyMatch && !skipMatch && !brandOnlyMatch) {
       payload.mandatorySpecifications = {
         ...payload.mandatorySpecifications,
         target_merchants: onlyMatch[1].toLowerCase().replace(/['\s]/g, '')

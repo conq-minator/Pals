@@ -118,7 +118,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
 
     for (const item of synthesized) {
       // Intent matching check (Strictly prevents category pollution)
-      const intent = ARBQueryMatcher.matchesIntent(productQuery, item.title, item.brand);
+      const intent = ARBQueryMatcher.matchesIntent(productQuery, item.title, item.brand, item.category || payload.category);
       if (!intent.matches) continue;
 
       // Targeted merchant check (e.g. "pizza from dominos", "milk on blinkit")
@@ -246,6 +246,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     pros: string[];
     cons: string[];
     sku: string;
+    category?: string;
   }> {
     const qLower = query.toLowerCase().trim();
     const items: any[] = [];
@@ -383,6 +384,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           domain: st.domain,
           brand: st.brand,
           title: st.title,
+          category: 'food_delivery',
           basePrice: st.price,
           shipping: st.ship,
           tax: 0,
@@ -392,7 +394,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           warrantyMonths: 0,
           specs: { speed: st.deliveryMins, rating: st.rating, cuisine: 'Hyderabadi Dum Pukht' },
           pros: [`Fast delivery: ${st.deliveryMins}`, `Customer Rating: ${st.rating}`, 'Prepared fresh with slow-cooked aromatic basmati rice'],
-          cons: [],
+          cons: ['Indicative reference price; verify current pricing on merchant site'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-BIRYANI-${st.brand.replace(/\s+/g, '').toUpperCase().slice(0, 6)}`
         });
       }
@@ -426,6 +428,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
             domain: st.domain,
             brand: st.brand,
             title: st.title,
+            category: 'grocery',
             basePrice: st.price,
             shipping: st.ship,
             tax: 0,
@@ -434,8 +437,8 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
             inStock: true,
             warrantyMonths: 0,
             specs: { purity: '100% Raw Organic', diet: 'Gluten-Free, Keto, Vegan', origin: 'Sustainably Farmed' },
-            pros: ['Rich in Omega-3 fatty acids, calcium and plant protein', 'Sealed freshness lock packaging', 'Verified authentic grocery provider'],
-            cons: [],
+            pros: ['Rich in Omega-3 fatty acids, calcium and plant protein', 'Sealed freshness lock packaging'],
+            cons: ['Indicative reference price; verify current pricing on merchant site'],
             sku: `${st.domain.split('.')[0].toUpperCase()}-CHIA-${st.brand.toUpperCase()}`
           });
         }
@@ -465,6 +468,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           domain: st.domain,
           brand: 'Apple',
           title: 'Apple Mac mini Desktop Computer (M4 Chip, 16GB Unified Memory, 256GB SSD, Silver)',
+          category: 'desktops',
           basePrice: st.price,
           shipping: st.ship,
           tax: 0,
@@ -474,7 +478,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           warrantyMonths: 12,
           specs: { ram: '16GB Unified', storage: '256GB SSD', processor: 'Apple M4 10-core CPU', gpu: 'Apple 10-core GPU' },
           pros: ['Redesigned 5x5 inch ultra-compact chassis', 'Front-facing USB-C & headphone jack', 'Industry-leading energy efficiency'],
-          cons: ['Monitor, keyboard and mouse sold separately'],
+          cons: ['Monitor, keyboard and mouse sold separately', 'Indicative reference price; verify current pricing on merchant site'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-APL-MACMINI-M4`
         });
       }
@@ -486,11 +490,11 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     // =========================================================================
     if (qLower.includes('keyboard') || qLower.includes('keychron')) {
       const kbStores = [
-        { domain: 'keychron.in', name: 'Keychron Official India', curr: 'INR' as const, price: 7999, url: 'https://keychron.in/product/keychron-k2-wireless-mechanical-keyboard/' },
-        { domain: 'genesispc.in', name: 'GenesisPC Tech', curr: 'INR' as const, price: 7499, url: 'https://www.genesispc.in/product/keychron-k2-v2/' },
-        { domain: 'meckeys.com', name: 'Meckeys Keyboard Specialists', curr: 'INR' as const, price: 7899, url: 'https://www.meckeys.com/shop/keyboard/keychron-k2/' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 8199, url: 'https://amazon.in/dp/B07YB32H52' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 79.99, url: 'https://bestbuy.com/site/keychron-k2/6483921.p' }
+        { domain: 'keychron.in', name: 'Keychron Official India', curr: 'INR' as const, price: 7999, url: 'https://keychron.in/search?q=Keychron+K2' },
+        { domain: 'genesispc.in', name: 'GenesisPC Tech', curr: 'INR' as const, price: 7499, url: 'https://www.genesispc.in/search?q=Keychron+K2' },
+        { domain: 'meckeys.com', name: 'Meckeys Keyboard Specialists', curr: 'INR' as const, price: 7899, url: 'https://www.meckeys.com/search?q=Keychron+K2' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 8199, url: 'https://amazon.in/s?k=Keychron+K2' },
+        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 79.99, url: 'https://bestbuy.com/site/searchpage.jsp?st=keychron+k2' }
       ];
 
       for (const st of kbStores) {
@@ -500,6 +504,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           domain: st.domain,
           brand: 'Keychron',
           title: 'Keychron K2 Wireless Mechanical Keyboard (Hot-swappable, Gateron G Pro Brown, RGB Backlit)',
+          category: 'peripherals',
           basePrice: st.price,
           shipping: 0,
           tax: 0,
@@ -509,7 +514,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           warrantyMonths: 12,
           specs: { switches: 'Gateron Brown Tactile', battery: '4000mAh', connectivity: 'Bluetooth 5.1 & Type-C' },
           pros: ['Hot-swappable switch sockets', 'Mac/Windows dedicated layout', 'Massive 4000mAh battery'],
-          cons: ['Chassis profile requires palm rest for some users'],
+          cons: ['Chassis profile requires palm rest for some users', 'Indicative reference price; verify current pricing on merchant site'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-KEY-K2V2`
         });
       }
@@ -521,11 +526,11 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     // =========================================================================
     if (qLower.includes('headphone') || qLower.includes('sony wh') || qLower.includes('bose') || qLower.includes('sennheiser')) {
       const audioStores = [
-        { domain: 'shopatsc.com', name: 'Sony Center Official', brand: 'Sony', title: 'Sony WH-1000XM5 Wireless Noise Cancelling Headphones (Black)', curr: 'INR' as const, price: 26990, url: 'https://shopatsc.com/products/wh-1000xm5' },
-        { domain: 'croma.com', name: 'Croma Electronics', brand: 'Bose', title: 'Bose QuietComfort 45 Bluetooth Noise Cancelling Headphones', curr: 'INR' as const, price: 24900, url: 'https://croma.com/p/244819' },
-        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Sennheiser', title: 'Sennheiser Momentum 4 Wireless ANC Headphones (60-Hour Battery)', curr: 'INR' as const, price: 24990, url: 'https://reliancedigital.in/item/491901' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Sony', title: 'Sony WH-1000XM5 Wireless ANC Headphones (Black)', curr: 'INR' as const, price: 25990, url: 'https://amazon.in/dp/B09XS7JWHH' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Sony', title: 'Sony - WH-1000XM5 Wireless Noise-Canceling Over-the-Ear Headphones', curr: 'USD' as const, price: 349.99, url: 'https://bestbuy.com/site/sony-wh-1000xm5/6505727.p' }
+        { domain: 'shopatsc.com', name: 'Sony Center Official', brand: 'Sony', title: 'Sony WH-1000XM5 Wireless Noise Cancelling Headphones (Black)', curr: 'INR' as const, price: 26990, url: 'https://shopatsc.com/search?q=WH-1000XM5' },
+        { domain: 'croma.com', name: 'Croma Electronics', brand: 'Bose', title: 'Bose QuietComfort 45 Bluetooth Noise Cancelling Headphones', curr: 'INR' as const, price: 24900, url: 'https://croma.com/search/?text=Bose+QuietComfort+45' },
+        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Sennheiser', title: 'Sennheiser Momentum 4 Wireless ANC Headphones (60-Hour Battery)', curr: 'INR' as const, price: 24990, url: 'https://reliancedigital.in/search?q=Sennheiser+Momentum+4' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Sony', title: 'Sony WH-1000XM5 Wireless ANC Headphones (Black)', curr: 'INR' as const, price: 25990, url: 'https://amazon.in/s?k=Sony+WH-1000XM5' },
+        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Sony', title: 'Sony - WH-1000XM5 Wireless Noise-Canceling Over-the-Ear Headphones', curr: 'USD' as const, price: 349.99, url: 'https://bestbuy.com/site/searchpage.jsp?st=sony+wh-1000xm5' }
       ];
 
       for (const st of audioStores) {
@@ -535,6 +540,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           domain: st.domain,
           brand: st.brand,
           title: st.title,
+          category: 'audio',
           basePrice: st.price,
           shipping: 0,
           tax: 0,
@@ -544,7 +550,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           warrantyMonths: 12,
           specs: { anc: 'Active Noise Cancellation', battery: '30-60 Hours' },
           pros: ['Industry benchmark ANC', 'Premium multipoint Bluetooth audio'],
-          cons: ['Premium price bracket'],
+          cons: ['Premium price bracket', 'Indicative reference price; verify current pricing on merchant site'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-AUD-${st.brand.toUpperCase()}`
         });
       }
@@ -579,6 +585,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           domain: lap.domain,
           brand: lap.brand,
           title: lap.title,
+          category: 'laptops',
           basePrice: lap.price,
           shipping: lap.ship,
           tax: 0,
@@ -587,8 +594,8 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           inStock: true,
           warrantyMonths: 12,
           specs: { ram: lap.ram, gpu: lap.gpu, display: lap.display },
-          pros: ['High performance modern processor architecture', 'Official manufacturer warranty'],
-          cons: [],
+          pros: ['High performance modern processor architecture'],
+          cons: ['Indicative reference price; verify current pricing on merchant site'],
           sku: `${lap.domain.split('.')[0].toUpperCase()}-${lap.brand.toUpperCase()}-${Math.abs(lap.title.length * 31).toString(36).toUpperCase()}`
         });
       }

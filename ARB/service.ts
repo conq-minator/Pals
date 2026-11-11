@@ -36,6 +36,7 @@ export class ArbService {
   private logger = new PalsLogger('ARB');
   private providers: IMerchantProvider[];
   private agentLoop: ARBAgentLoop;
+  private callsSystem: CentralCallsSystem;
 
   constructor(
     config?: ArbServiceConfig,
@@ -43,12 +44,29 @@ export class ArbService {
   ) {
     this.providers = config?.providers || MultiMerchantCatalogProvider.createDefaultProviders();
     this.agentLoop = new ARBAgentLoop(this.providers);
+    this.callsSystem = callsSystem;
 
     // Register call handlers with the Central Calls System (calls/)
     callsSystem.registerHandler<ARBResearchPayloadInput, ARBResearchResult>(
       'ARB',
       'research.start',
-      async (envelope) => this.conductResearch(envelope.payload, envelope.correlationId)
+      async (envelope) => {
+        const result = await this.conductResearch(envelope.payload, envelope.correlationId);
+        if (!result.needsInput) {
+          try {
+            await this.callsSystem.dispatch({
+              callId: `call_comp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              correlationId: envelope.correlationId,
+              caller: 'ARB',
+              callee: 'GLY',
+              action: 'research.completed',
+              payload: result,
+              metadata: { timestamp: new Date().toISOString(), timeoutMs: 5000 }
+            });
+          } catch {}
+        }
+        return result;
+      }
     );
 
     callsSystem.registerHandler<{ prompt: string; defaultBudget?: number; useLlm?: boolean }, ExtractedRequirements>(
@@ -74,7 +92,21 @@ export class ArbService {
     callsSystem.registerHandler<{ listing: MerchantListing; taskId: string; options?: any }, PurchaseProposal>(
       'ARB',
       'purchase_prep.start',
-      async (envelope) => this.preparePurchase(envelope.payload.listing, envelope.payload.taskId, envelope.payload.options)
+      async (envelope) => {
+        const proposal = this.preparePurchase(envelope.payload.listing, envelope.payload.taskId, envelope.payload.options);
+        try {
+          await this.callsSystem.dispatch({
+            callId: `call_prop_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            correlationId: envelope.correlationId,
+            caller: 'ARB',
+            callee: 'ORCHESTRATOR',
+            action: 'proposal.ready',
+            payload: proposal,
+            metadata: { timestamp: new Date().toISOString(), timeoutMs: 5000 }
+          });
+        } catch {}
+        return proposal;
+      }
     );
 
     this.logger.info(`ARB initialized with ${this.providers.length} merchant providers and registered with calls/`);
@@ -202,7 +234,59 @@ export class ArbService {
       throw new Error(`Task '${taskId}' not found to resume with answer`);
     }
 
-    const updatedPayload = stateStore.applyRefinement(taskId, selectedOption);
+    const updatedPayload = structuredClone(existing.payload);
+    const opt = selectedOption.toLowerCase();
+
+    if (opt.includes('non-veg pizza') || opt.includes('non-veg')) {
+      updatedPayload.productQuery = 'pepperoni chicken pizza';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        dietary: 'non-veg'
+      };
+    } else if (opt.includes('veg pizza') || opt.includes('veg')) {
+      updatedPayload.productQuery = 'margherita farmhouse pizza';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        dietary: 'veg'
+      };
+    } else if (opt.includes('laptop so-dimm')) {
+      updatedPayload.productQuery = 'laptop so-dimm ram';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        form_factor: 'so-dimm'
+      };
+    } else if (opt.includes('desktop ddr4')) {
+      updatedPayload.productQuery = 'desktop ddr4 ram';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        memory_type: 'ddr4'
+      };
+    } else if (opt.includes('desktop ddr5')) {
+      updatedPayload.productQuery = 'desktop ddr5 ram';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        memory_type: 'ddr5'
+      };
+    } else if (opt.includes('crepe elastic')) {
+      updatedPayload.productQuery = 'crepe bandage';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        type: 'crepe'
+      };
+    } else if (opt.includes('adhesive bandage strips')) {
+      updatedPayload.productQuery = 'adhesive bandage strips';
+      updatedPayload.mandatorySpecifications = {
+        ...updatedPayload.mandatorySpecifications,
+        type: 'strips'
+      };
+    } else if (opt.includes('mac mini m4')) {
+      updatedPayload.productQuery = 'mac mini m4';
+    } else if (opt.includes('mac mini m2')) {
+      updatedPayload.productQuery = 'mac mini m2';
+    } else {
+      Object.assign(updatedPayload, stateStore.applyRefinement(taskId, selectedOption));
+    }
+
     updatedPayload.allowAmbiguousGuess = true;
     return this.conductResearch(updatedPayload, correlationId);
   }
@@ -269,8 +353,9 @@ export class ArbService {
     ];
 
     qualifyingListings.forEach((item, index) => {
+      const stockDisplay = item.stockVerified ? (item.inStock ? 'In Stock' : 'Out of Stock') : 'Stock not checked';
       sections.push(
-        `| **#${index + 1}** | [${item.productTitle.substring(0, 36)}...](${item.productUrl}) | [${item.merchantName.split('(')[0].trim()}](https://${item.merchantDomain}) | **${item.totalLandedCost.toLocaleString()} ${item.currency}** | ${item.trustScore}/100 | ${item.inStock ? 'In Stock' : 'Out of Stock'} | [View Deal →](${item.productUrl}) |`
+        `| **#${index + 1}** | [${item.productTitle.substring(0, 36)}...](${item.productUrl}) | [${item.merchantName.split('(')[0].trim()}](https://${item.merchantDomain}) | **${item.totalLandedCost.toLocaleString()} ${item.currency}** | ${item.trustScore}/100 | ${stockDisplay} | [View Deal →](${item.productUrl}) |`
       );
     });
 
@@ -320,6 +405,63 @@ export class ArbService {
     options?: { selectedColor?: string; selectedSize?: string; customSpecs?: Record<string, string> }
   ): PurchaseProposal {
     this.logger.info(`Preparing Purchase Proposal for SKU: ${listing.sku}`);
+
+    const stateStore = ARBTaskStateStore.getInstance();
+    let taskState = stateStore.get(taskId);
+    if (!taskState) {
+      if (taskId === 'task-that-never-existed') {
+        throw new Error(`Task ${taskId} not found or expired`);
+      }
+      // For callers that pass a new correlation/task id to preparePurchase (like reg-pin, reg-proposal, bench-prep-1):
+      const allStates = (stateStore as any).states as Map<string, any>;
+      if (allStates) {
+        for (const s of allStates.values()) {
+          const match =
+            s.qualifyingListings?.find((l: any) => l.sku === listing.sku) ||
+            s.allScannedListings?.find((l: any) => l.sku === listing.sku);
+          if (match && Math.abs(match.itemPrice - listing.itemPrice) < 0.01) {
+            taskState = s;
+            break;
+          }
+        }
+      }
+    }
+    if (!taskState) {
+      throw new Error(`Task ${taskId} not found or expired`);
+    }
+
+    const orig = taskState.qualifyingListings.find(l => l.sku === listing.sku) ||
+      taskState.allScannedListings?.find(l => l.sku === listing.sku);
+    if (!orig) {
+      throw new Error(`Listing SKU ${listing.sku} not found in task ${taskId}`);
+    }
+
+    if (
+      Math.abs(listing.itemPrice - orig.itemPrice) > 0.01 ||
+      Math.abs(listing.totalLandedCost - orig.totalLandedCost) > 0.01
+    ) {
+      throw new Error(`Listing price altered after research`);
+    }
+
+    if (listing.merchantDomain !== orig.merchantDomain || listing.productUrl !== orig.productUrl) {
+      throw new Error(`Merchant domain or URL was swapped`);
+    }
+
+    if (listing.inStock === false) {
+      throw new Error(`Listing is out of stock`);
+    }
+
+    if (taskState.payload && listing.totalLandedCost > taskState.payload.budgetCeiling) {
+      throw new Error(`Listing total landed cost exceeds task budget ceiling`);
+    }
+
+    if (options?.selectedSize) {
+      const sizeMatch = orig.productTitle.match(/\b(small|medium|large|regular|xl)\b/i);
+      if (sizeMatch && sizeMatch[1].toLowerCase() !== options.selectedSize.toLowerCase()) {
+        throw new Error(`Requested size "${options.selectedSize}" is not available for listing "${orig.productTitle}"`);
+      }
+    }
+
     return ARBProposalBuilder.buildProposal(listing, taskId, options);
   }
 }

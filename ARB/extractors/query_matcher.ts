@@ -53,7 +53,7 @@ export class ARBQueryMatcher {
   /**
    * Validates whether a candidate listing matches the core product intent of the search query.
    */
-  public static matchesIntent(query: string, productTitle: string, brand: string = ''): { matches: boolean; reason?: string } {
+  public static matchesIntent(query: string, productTitle: string, brand: string = '', category?: string): { matches: boolean; reason?: string } {
     const coreTokens = this.extractCoreTokens(query);
     if (coreTokens.length === 0) {
       return { matches: true }; // Generic search (e.g. "under 60k"), allow category matching
@@ -122,11 +122,16 @@ export class ARBQueryMatcher {
       return { matches: true };
     }
 
-    // 4. Token overlap ratio for general queries
-    // At least 50% of core descriptive tokens or the brand must match
+    // 6. Token overlap ratio for general queries
+    const isLaptopListing = category === 'laptops' || /rtx|gtx|intel core|ryzen|gaming laptop|vivobook|thin 15|victus|loq|tuf|nitro|legion|macbook/i.test(combined);
+
     let matchCount = 0;
     for (const token of coreTokens) {
       if (combined.includes(token)) {
+        matchCount++;
+      } else if (isLaptopListing && (token === 'laptop' || token === 'notebook')) {
+        matchCount++;
+      } else if (isLaptopListing && token === 'gaming' && /rtx|gtx|gaming|144hz|120hz|165hz/i.test(combined)) {
         matchCount++;
       }
     }

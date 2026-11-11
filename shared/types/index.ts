@@ -167,7 +167,8 @@ export const ARBResearchPayloadSchema = z.object({
   quantity: z.number().int().positive().optional(),
   deliveryBy: z.string().optional(),
   budgetFlexibility: z.enum(['STRICT', 'FLEXIBLE_10_PERCENT', 'FLEXIBLE_20_PERCENT']).optional(),
-  allowAmbiguousGuess: z.boolean().optional()
+  allowAmbiguousGuess: z.boolean().optional(),
+  noBudgetStated: z.boolean().optional()
 });
 export type ARBResearchPayload = z.infer<typeof ARBResearchPayloadSchema>;
 /** Caller-facing shape: fields with schema defaults may be omitted. */
@@ -180,12 +181,14 @@ export const MerchantListingSchema = z.object({
   productTitle: z.string(),
   productUrl: z.string(),
   sku: z.string(),
+  category: z.string().optional(),
   itemPrice: z.number().nonnegative(),
   estimatedShipping: z.number().nonnegative(),
   estimatedTax: z.number().nonnegative(),
   totalLandedCost: z.number().nonnegative(),
   currency: z.string(),
   inStock: z.boolean(),
+  stockVerified: z.boolean().optional(),
   warrantyPeriodMonths: z.number().optional(),
   trustScore: z.number().min(0).max(100),
   trustReasons: z.array(z.string()),
@@ -236,6 +239,7 @@ export const PurchaseProposalSchema = z.object({
   }).optional(),
   merchantTrustScore: z.number().min(0).max(100),
   supportedPaymentMethods: z.array(z.string()).optional(),
+  checkoutReady: z.boolean().optional(),
   prefilledShipping: z.record(z.string(), z.string()).optional(),
   pulseHandoffPayload: z.record(z.string(), z.unknown()).optional(),
   expiresAt: z.string().datetime()
