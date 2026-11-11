@@ -38,6 +38,11 @@ export class ARBRelevanceScorer {
     const titleLower = listingTitle.toLowerCase();
     const queryLower = productQuery.toLowerCase();
 
+    // 0. A curated catalog entry matched through an alias/synonym is relevant by construction.
+    if (ARBQueryMatcher.catalogVouches(productQuery, listingTitle)) {
+      return { isRelevant: true, score: 1.0, matchedTokens: queryTokens };
+    }
+
     // 1. Accessory Guard:
     // If the query is NOT looking for an accessory, but the listing is an accessory, reject.
     const queryWantsAccessory = Array.from(this.ACCESSORY_KEYWORDS).some(kw => queryLower.includes(kw));
@@ -63,7 +68,8 @@ export class ARBRelevanceScorer {
     const userExplicitlyRequestedComputer = queryTokens.some(t => ['laptop', 'notebook', 'pc', 'macbook', 'desktop'].includes(t));
 
     if (isRamQuery && !userExplicitlyRequestedComputer) {
-      const isCompleteSystem = ['laptop', 'notebook', 'macbook'].some(sys => titleLower.includes(sys));
+      const isMemoryModule = /so-?dimm|\bu?dimm\b|laptop ram|desktop ram|ram kit|memory module/i.test(titleLower);
+      const isCompleteSystem = !isMemoryModule && ['laptop', 'notebook', 'macbook'].some(sys => titleLower.includes(sys));
       if (isCompleteSystem) {
         return {
           isRelevant: false,

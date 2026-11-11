@@ -208,7 +208,7 @@ export class ARBSpecNormalizer {
 
     // 8. Food Specific Normalization
     let dietary: 'veg' | 'non-veg' | 'vegan' | undefined;
-    if (/\b(?:chicken|mutton|fish|meat|pepperoni|egg|prawn)\b/i.test(combined)) {
+    if (/non[- ]?veg|chicken|mutton|pepperoni|bacon|keema|\b(?:fish|meat|eggs?|prawns?|beef|pork|ham|lamb|salami|sausage|zinger)\b/i.test(combined)) {
       dietary = 'non-veg';
     } else if (/\b(?:vegan|plant-based)\b/i.test(combined)) {
       dietary = 'vegan';
@@ -387,8 +387,12 @@ export class ARBSpecNormalizer {
     // 9. Dietary Preference (dietary: veg vs non-veg)
     if (mandatory['dietary'] && typeof mandatory['dietary'] === 'string') {
       const reqDiet = mandatory['dietary'].toLowerCase();
-      if (reqDiet === 'veg' && specs.dietary === 'non-veg') {
+      if ((reqDiet === 'veg' || reqDiet === 'vegan') && specs.dietary === 'non-veg') {
         failedReasons.push('Listing is non-vegetarian; vegetarian dish required');
+      } else if (reqDiet === 'non-veg' && specs.dietary !== 'non-veg') {
+        failedReasons.push('Listing is not a non-vegetarian dish');
+      } else if (reqDiet === 'vegan' && specs.dietary !== 'vegan') {
+        unverifiedSpecs.push('Vegan (not stated on listing)');
       }
     }
 

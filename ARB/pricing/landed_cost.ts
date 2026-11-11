@@ -1,3 +1,5 @@
+import { ARBCurrencyConverter } from '../currency/forex_converter.js';
+
 export interface LandedCostInput {
   merchantDomain: string;
   itemPrice: number;
@@ -6,6 +8,8 @@ export interface LandedCostInput {
   category?: string;
   deliveryPostalCode?: string;
   discountAmount?: number;
+  /** Merchant sells in a different market/currency than the shopper (import). */
+  crossBorder?: boolean;
 }
 
 export interface FeeLineItem {
@@ -73,6 +77,7 @@ export class ARBLandedCostCalculator {
     let customsDuty = 0;
     let pincodeServiced = true;
     let pincodeNote: string | undefined;
+    let isCrossBorder = input.crossBorder === true;
 
     const feeLines: FeeLineItem[] = [];
 
@@ -93,28 +98,32 @@ export class ARBLandedCostCalculator {
         pincodeServiced = false;
         pincodeNote = `Quick-commerce merchant (${domain}) does not service US ZIP ${cleanPin}.`;
       } else if (isUsStore && isIndianPin && isINR) {
-        // Cross-border shipment
-        shippingFee = 25 * 84; // ~$25 in INR
-        shippingConfirmed = false;
-        customsDuty = Math.round(effectivePrice * 0.22); // 22% import duty
-        feeLines.push({
-          name: 'Cross-Border International Shipping',
-          amount: shippingFee,
-          confirmed: false,
-          description: `Estimated standard air freight to PIN ${cleanPin}`
-        });
-        feeLines.push({
-          name: 'Customs Import Duty (Estimated 22%)',
-          amount: customsDuty,
-          confirmed: false,
-          description: 'Applicable cross-border electronics duty and cess'
-        });
+        isCrossBorder = true;
         pincodeNote = `Cross-border shipment from US merchant to Indian PIN ${cleanPin}.`;
-      } else if (isIndianPin) {
-        pincodeNote = `Verified deliverable to Indian postal code ${cleanPin}.`;
-      } else if (isUsZip) {
-        pincodeNote = `Verified deliverable to US postal code ${cleanPin}.`;
+      } else if (isIndianPin || isUsZip) {
+        // ARB has not queried the merchant's serviceability API, so this is NOT a verification.
+        pincodeNote = `Delivery to postal code ${cleanPin} requested — serviceability is confirmed on the merchant page at checkout.`;
       }
+    }
+
+    if (isCrossBorder && pincodeServiced) {
+      // Estimates only: ~USD 25 international shipping and ~22% import duty.
+      const rawShip = ARBCurrencyConverter.convert(25, 'USD', currency);
+      shippingFee = rawShip;
+      shippingConfirmed = false;
+      customsDuty = isINR ? Math.round(effectivePrice * 0.22) : Math.round(effectivePrice * 0.22 * 100) / 100;
+      feeLines.push({
+        name: 'Cross-Border International Shipping',
+        amount: shippingFee,
+        confirmed: false,
+        description: 'Estimated standard international air freight'
+      });
+      feeLines.push({
+        name: 'Customs Import Duty (Estimated 22%)',
+        amount: customsDuty,
+        confirmed: false,
+        description: 'Estimated cross-border duty and cess'
+      });
     }
 
     // 2. Merchant Specific Fee Schedules

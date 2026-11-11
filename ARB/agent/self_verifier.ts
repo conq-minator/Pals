@@ -187,7 +187,9 @@ export class ARBSelfVerifier {
     if (mandatory['dietary'] && typeof mandatory['dietary'] === 'string') {
       const reqDiet = mandatory['dietary'].toLowerCase();
       const actualDiet = normalized.dietary;
-      const isSatisfied = !(reqDiet === 'veg' && actualDiet === 'non-veg');
+      const isSatisfied = reqDiet === 'non-veg'
+        ? actualDiet === 'non-veg'
+        : !((reqDiet === 'veg' || reqDiet === 'vegan') && actualDiet === 'non-veg');
       if (!isSatisfied) {
         allHardSatisfied = false;
       }

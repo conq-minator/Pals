@@ -167,11 +167,12 @@ export class ARBWebCrawler {
             const combinedText = `${rawTitle} ${snippet}`;
 
             // Reject if snippet text is explicitly an EMI quote
-            if (/emi from|\/month|per month/i.test(combinedText) && !combinedText.includes('full price')) {
-              // Be cautious of false low prices
-            }
+            const looksLikeEmiQuote = /emi from|emi starts|no cost emi|\/month|per month/i.test(combinedText) && !combinedText.includes('full price');
 
-            if (nativeCurrency === 'USD') {
+            if (looksLikeEmiQuote) {
+              // An unverified snippet that quotes a monthly instalment cannot be trusted as the item price.
+              nativePrice = 0;
+            } else if (nativeCurrency === 'USD') {
               const usdMatch = combinedText.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
               if (usdMatch) {
                 nativePrice = parseFloat(usdMatch[1].replace(/,/g, ''));
@@ -192,7 +193,8 @@ export class ARBWebCrawler {
           if (!intent.matches) continue;
 
           // 5. Currency Conversion
-          const convertedPrice = ARBCurrencyConverter.convert(nativePrice, nativeCurrency, targetCurrency);
+          const quantity = Math.max(1, payload.quantity ?? 1);
+          const convertedPrice = ARBCurrencyConverter.convert(nativePrice * quantity, nativeCurrency, targetCurrency);
 
           // 6. Deal Arbitration (Public Vouchers)
           const deal = ARBDealArbitrator.arbitrateDeal(domain, convertedPrice, targetCurrency);
@@ -205,7 +207,8 @@ export class ARBWebCrawler {
             productTitle: finalTitle,
             category,
             deliveryPostalCode,
-            discountAmount: deal.successful ? deal.savingsAmount : 0
+            discountAmount: deal.successful ? deal.savingsAmount : 0,
+            crossBorder: nativeCurrency !== targetCurrency
           });
 
           // Discard if postal code is incompatible/unserviced
@@ -213,15 +216,9 @@ export class ARBWebCrawler {
 
           const totalLandedCost = landedCalc.totalLandedCost;
 
-          // 8. Budget Ceiling Check
-          if (totalLandedCost > budgetCeiling) continue;
-
-          // 9. Spec Normalization & Constraint Satisfaction
+          // 8-9. Budget and spec filtering are owned by the agent loop (it needs the
+          //      near-misses to propose closest alternatives), so they are not applied here.
           const normalizedSpecs = ARBSpecNormalizer.normalize(finalTitle, { snippet });
-          if (mandatorySpecifications && Object.keys(mandatorySpecifications).length > 0) {
-            const satisfies = ARBSpecNormalizer.satisfiesConstraints(normalizedSpecs, mandatorySpecifications);
-            if (!satisfies.satisfied) continue;
-          }
 
           // 10. Canonical Product Identity
           const canonicalIdentity = ARBCanonicalIdentity.extractIdentity(
@@ -243,7 +240,7 @@ export class ARBWebCrawler {
             pros.push(deal.transparencyDescription);
           }
           if (landedCalc.shippingFee === 0) {
-            pros.push(`Free shipping policy verified (${domain})`);
+            pros.push(`Free shipping expected under ${domain}'s standard policy (estimate)`);
           }
           if (landedCalc.pincodeNote) {
             pros.push(landedCalc.pincodeNote);

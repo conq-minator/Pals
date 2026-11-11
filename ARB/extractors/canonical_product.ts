@@ -195,15 +195,33 @@ export class ARBCanonicalIdentity {
       }
     }
 
-    // Default: clean stripped token
-    return cleanTitle
-      .replace(brand, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .split(' ')
-      .slice(0, 2)
-      .join('-')
-      .replace(/[^a-z0-9-]/g, '') || 'base';
+    // Default: the first descriptive words after the brand.
+    // The brand is stored without spaces/punctuation ("burgerking", "lapinoz"), so strip it
+    // token by token — otherwise multi-word brands swallow the model and every product of
+    // that brand collapses into one identity ("Burger King Veg Whopper" == "Burger King Crispy Veg").
+    const tokens = cleanTitle
+      .replace(/\(.*?\)/g, ' ')
+      .split(/\s+/)
+      .map(t => t.replace(/[^a-z0-9]/g, ''))
+      .filter(Boolean);
+
+    let consumed = '';
+    let start = 0;
+    while (start < tokens.length && brand.startsWith(consumed + tokens[start])) {
+      consumed += tokens[start];
+      start++;
+      if (consumed === brand) break;
+    }
+    if (consumed !== brand) start = tokens[0] === brand ? 1 : 0;
+
+    const FILLER = new Set(['via', 'with', 'for', 'and', 'the', 'by']);
+    const modelTokens: string[] = [];
+    for (const t of tokens.slice(start)) {
+      if (FILLER.has(t)) break;
+      modelTokens.push(t);
+      if (modelTokens.length === 3) break;
+    }
+    return modelTokens.join('-') || 'base';
   }
 
   /**

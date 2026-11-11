@@ -1,5 +1,6 @@
 import {
   ARBResearchPayload,
+  ARBResearchPayloadInput,
   ARBResearchResult,
   MerchantListing,
   PurchaseProposal,
@@ -44,7 +45,7 @@ export class ArbService {
     this.agentLoop = new ARBAgentLoop(this.providers);
 
     // Register call handlers with the Central Calls System (calls/)
-    callsSystem.registerHandler<ARBResearchPayload, ARBResearchResult>(
+    callsSystem.registerHandler<ARBResearchPayloadInput, ARBResearchResult>(
       'ARB',
       'research.start',
       async (envelope) => this.conductResearch(envelope.payload, envelope.correlationId)
@@ -94,24 +95,25 @@ export class ArbService {
    * Driven by the autonomous plan -> act -> observe -> decide Agent Loop.
    */
   public async conductResearch(
-    payload: ARBResearchPayload,
+    payload: ARBResearchPayloadInput,
     correlationId: string,
     userId?: string
   ): Promise<ARBResearchResult> {
-    // Enrich with persistent user preferences if userId is provided or present in payload (Flaw 20)
-    const effectiveUserId = userId || (payload as any).userId;
-    const effectivePayload = effectiveUserId
-      ? ARBPreferenceStore.getInstance().enrichPayload(effectiveUserId, payload)
-      : payload;
-
-    this.logger.info(`Starting market research for: "${effectivePayload.productQuery}"`, undefined, correlationId);
-
-    // 1. Schema Validation
-    const validation = ARBResearchPayloadSchema.safeParse(effectivePayload);
+    // 1. Schema Validation. The parsed result (with schema defaults applied, e.g. the
+    //    80/100 trust floor) is what the pipeline runs on — never the raw caller object.
+    const validation = ARBResearchPayloadSchema.safeParse(payload);
     if (!validation.success) {
       this.logger.error('Invalid ARB research payload', undefined, correlationId);
       throw new Error(`Invalid ARB research payload: ${JSON.stringify(validation.error.format())}`);
     }
+
+    // Enrich with persistent user preferences if userId is provided or present in payload (Flaw 20)
+    const effectiveUserId = userId || (payload as any).userId;
+    const effectivePayload = effectiveUserId
+      ? ARBPreferenceStore.getInstance().enrichPayload(effectiveUserId, validation.data)
+      : validation.data;
+
+    this.logger.info(`Starting market research for: "${effectivePayload.productQuery}"`, undefined, correlationId);
 
     // 2. Delegate to Autonomous Agent Reasoning Loop
     return this.agentLoop.run(
@@ -154,8 +156,29 @@ export class ArbService {
   ): Promise<ARBResearchResult> {
     this.logger.info(`Refining research for task ${taskId}: "${refinementPrompt}"`);
     const stateStore = ARBTaskStateStore.getInstance();
+    const previous = stateStore.get(taskId);
     const updatedPayload = stateStore.applyRefinement(taskId, refinementPrompt);
-    return this.conductResearch(updatedPayload, correlationId);
+    const refined = await this.conductResearch(updatedPayload, correlationId);
+
+    // "Cheaper" when the shopper is already looking at the cheapest qualifying option:
+    // keep the previous results (and state) instead of returning an empty list.
+    const askedCheaper = /cheaper|lower price|less expensive/i.test(refinementPrompt);
+    if (askedCheaper && refined.qualifyingListingsFound === 0 && previous && previous.qualifyingListings.length > 0) {
+      stateStore.save(previous);
+      const top = previous.qualifyingListings[0];
+      return {
+        taskId: refined.taskId,
+        totalListingsScanned: previous.scannedListingsCount,
+        qualifyingListingsFound: previous.qualifyingListings.length,
+        topRecommendations: previous.qualifyingListings,
+        arbitrationSummary: [
+          `> **No cheaper option found.** [${top.productTitle}](${top.productUrl}) at **${top.totalLandedCost.toLocaleString()} ${top.currency}** on ${top.merchantName} is already the lowest landed price that meets your requirements.`,
+          ``,
+          previous.arbitrationSummary
+        ].join('\n')
+      };
+    }
+    return refined;
   }
 
   /**
@@ -243,15 +266,17 @@ export class ArbService {
 
     const unverifiedNote = top.unverifiedSpecs && top.unverifiedSpecs.length > 0
       ? `Partially verified - satisfied known parameters, with unverified specifications: ${top.unverifiedSpecs.join(', ')}.`
-      : `Satisfies all of your stated requirements${mandatorySpecs && Object.keys(mandatorySpecs).length > 0 ? ` (${Object.entries(mandatorySpecs).filter(([k]) => k !== 'target_merchants').map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.`;
+      : `Satisfies all of your stated requirements${mandatorySpecs && Object.keys(mandatorySpecs).length > 0 ? ` (${Object.entries(mandatorySpecs).filter(([k]) => k !== 'target_merchants' && k !== 'excluded_merchants').map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.`;
 
     sections.push(
       ``,
       `#### Why Option #1 Was Selected as the Winner:`,
       `1. **Landed Cost Efficiency:** It offers the lowest out-of-the-door price (${top.totalLandedCost.toLocaleString()} ${currency}) inclusive of all taxes, merchant surcharges, and delivery fees.`,
-      `2. **Merchant Credibility:** Backed by verified authorized status on **${top.merchantDomain}** with verified return policies and buyer-protected payment support.`,
+      `2. **Merchant Credibility:** **${top.merchantDomain}** scores ${top.trustScore}/100 on ARB's merchant trust profile (dealer status, return policy, payment protection).`,
       `3. **Requirement Match:** ${unverifiedNote}`,
-      `4. **Verification Confidence:** Confirmed against merchant specifications and self-check audit trail.`,
+      `4. **Verification Confidence:** ${top.pros.some(p => /schema\.org/i.test(p))
+        ? 'Price and stock read live from the merchant product page.'
+        : 'Requirements re-checked against the listing by the self-check audit. Price is an indicative reference, not a live quote — it is confirmed on the merchant page at checkout.'}`,
       ``,
       `#### Next Steps:`,
       `To proceed with **Option #1**, reply with: *"Prepare checkout for option 1"* and I will formulate the Purchase Proposal with an interactive approval card.`

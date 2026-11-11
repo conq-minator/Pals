@@ -163,11 +163,13 @@ export const ARBResearchPayloadSchema = z.object({
   targetMerchants: z.array(z.string()).optional(),
   deliveryPostalCode: z.string().optional(),
   minMerchantTrustScore: z.number().min(0).max(100).default(80),
-  softPreferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
-  quantity: z.number().int().positive().default(1),
+  softPreferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  quantity: z.number().int().positive().optional(),
   deliveryBy: z.string().optional()
 });
 export type ARBResearchPayload = z.infer<typeof ARBResearchPayloadSchema>;
+/** Caller-facing shape: fields with schema defaults may be omitted. */
+export type ARBResearchPayloadInput = z.input<typeof ARBResearchPayloadSchema>;
 
 export const MerchantListingSchema = z.object({
   merchantId: z.string(),

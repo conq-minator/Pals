@@ -412,6 +412,34 @@ export class ARBEverydayCatalog {
     return best?.entry ?? null;
   }
 
+  /**
+   * Counts how many query keywords appear in a piece of offer text.
+   * Tolerant of apostrophes ("dominos" ~ "Domino's") and simple plurals ("pizzas" ~ "Pizza").
+   */
+  public static keywordHits(tokens: string[], text: string): number {
+    const hay = text.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ');
+    return tokens.filter(raw => {
+      const t = raw.toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      if (!t) return false;
+      if (hay.includes(t)) return true;
+      if (t.length > 3 && t.endsWith('es') && hay.includes(t.slice(0, -2))) return true;
+      if (t.length > 3 && t.endsWith('s') && hay.includes(t.slice(0, -1))) return true;
+      return false;
+    }).length;
+  }
+
+  /**
+   * True when the query resolves to a catalog entry (via its aliases) and the listing is one of
+   * that entry's offers. Lets alias/synonym queries ("tylenol", "anda", "plaster", "burgers")
+   * pass keyword-overlap relevance checks, which would otherwise reject them.
+   */
+  public static isOfferForQuery(query: string, listingTitle: string): boolean {
+    const entry = this.matchEntry(query);
+    if (!entry) return false;
+    const title = listingTitle.trim().toLowerCase();
+    return entry.offers.some(o => o.title.toLowerCase() === title);
+  }
+
   /** Returns the everyday vertical for a query, if it maps to one. */
   public static detectVertical(query: string): EverydayVertical | null {
     return this.matchEntry(query)?.vertical ?? null;
@@ -442,11 +470,7 @@ export class ARBEverydayCatalog {
 
     const tokens = ARBQueryMatcher.extractCoreTokens(query);
     if (tokens.length > 0) {
-      const scored = offers.map(o => {
-        const hay = `${o.title} ${o.brand}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-        const hits = tokens.filter(t => hay.includes(t.replace(/[^a-z0-9]+/g, ' ').trim())).length;
-        return { o, hits };
-      });
+      const scored = offers.map(o => ({ o, hits: this.keywordHits(tokens, `${o.title} ${o.brand}`) }));
       const maxHits = Math.max(...scored.map(s => s.hits));
       if (maxHits > 0) {
         offers = scored.filter(s => s.hits === maxHits).map(s => s.o);
@@ -463,3 +487,5 @@ export class ARBEverydayCatalog {
     });
   }
 }
+
+ARBQueryMatcher.catalogVouches = (query, title) => ARBEverydayCatalog.isOfferForQuery(query, title);

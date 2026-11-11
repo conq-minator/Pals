@@ -28,6 +28,7 @@ export class ARBAmbiguityDetector {
     if ((clean === 'ram' || clean === 'buy ram' || clean === 'ddr ram') ||
         (tokens.includes('ram') && !clean.includes('ddr4') && !clean.includes('ddr5') &&
          !clean.includes('laptop') && !clean.includes('desktop') && !clean.includes('sodimm') &&
+         !/\b(?:phone|iphone|mobile|smartphone|tablet|ipad|macbook|mac mini|galaxy|pixel)\b/.test(clean) &&
          !clean.includes('corsair') && !clean.includes('crucial') && !clean.includes('g.skill'))) {
       return {
         isAmbiguous: true,

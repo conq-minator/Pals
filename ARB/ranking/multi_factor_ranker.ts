@@ -3,6 +3,8 @@ import { MerchantListing, ARBResearchPayload } from '../../shared/types/index.js
 export interface ScoredListing {
   listing: MerchantListing;
   compositeScore: number; // 0 to 100
+  /** Parsed delivery estimate (upper bound, minutes) when the listing states one. */
+  etaMinutes?: number;
   scoreBreakdown: {
     priceEfficiency: number; // 0 to 100
     deliverySpeed: number;   // 0 to 100
@@ -28,6 +30,23 @@ export interface MultiFactorRankingResult {
  */
 export class ARBMultiFactorRanker {
   /**
+   * Reads a structured delivery estimate ("Delivery ETA: 25-30 mins", "Estimated delivery: 2-4 Days",
+   * "Same Day", "Next Day") from a listing's pros and returns the upper bound in minutes.
+   */
+  public static parseEtaMinutes(pros: string[]): number | undefined {
+    const line = pros.find(p => /^(?:delivery eta|estimated delivery)\s*:/i.test(p));
+    if (!line) return undefined;
+    const text = line.split(':').slice(1).join(':').toLowerCase();
+    if (text.includes('same day')) return 12 * 60;
+    if (text.includes('next day')) return 24 * 60;
+    const m = text.match(/([0-9]+)(?:\s*-\s*([0-9]+))?\s*(min|hour|hr|day)/);
+    if (!m) return undefined;
+    const upper = parseInt(m[2] || m[1], 10);
+    const unit = m[3];
+    return unit === 'min' ? upper : (unit === 'day' ? upper * 24 * 60 : upper * 60);
+  }
+
+  /**
    * Ranks listings and assigns labelled picks (Best Overall, Cheapest, Fastest).
    */
   public static rank(
@@ -39,8 +58,8 @@ export class ARBMultiFactorRanker {
     }
 
     const { budgetCeiling, preferredBrands, category } = payload;
-    const isFoodOrQuick = category === 'food' || category === 'quick_commerce' ||
-      listings.some(l => l.pros.some(p => /min delivery|mins delivery/i.test(p)));
+    const isFoodOrQuick = ['food', 'food_delivery', 'quick_commerce'].includes(category || '') ||
+      listings.some(l => l.pros.some(p => /min delivery|mins delivery|delivery eta/i.test(p)));
 
     // Dynamic weights per category
     const weights = isFoodOrQuick
@@ -56,7 +75,15 @@ export class ARBMultiFactorRanker {
       let deliverySpeed = 50; // standard 3-5 days
       const allText = [...listing.pros, ...listing.cons].join(' ').toLowerCase();
 
-      if (allText.includes('10-15 min') || allText.includes('15 min') || allText.includes('instant delivery')) {
+      const etaMinutes = ARBMultiFactorRanker.parseEtaMinutes(listing.pros);
+      if (etaMinutes !== undefined) {
+        if (etaMinutes <= 15) deliverySpeed = 100;
+        else if (etaMinutes <= 60) deliverySpeed = 90;
+        else if (etaMinutes <= 6 * 60) deliverySpeed = 85;
+        else if (etaMinutes <= 24 * 60) deliverySpeed = 80;
+        else if (etaMinutes <= 2 * 24 * 60) deliverySpeed = 70;
+        else if (etaMinutes <= 4 * 24 * 60) deliverySpeed = 60;
+      } else if (allText.includes('10-15 min') || allText.includes('15 min') || allText.includes('instant delivery')) {
         deliverySpeed = 100;
       } else if (allText.includes('30 min') || allText.includes('20-30 min') || allText.includes('45 min')) {
         deliverySpeed = 90;
@@ -112,6 +139,7 @@ export class ARBMultiFactorRanker {
       return {
         listing,
         compositeScore,
+        etaMinutes,
         scoreBreakdown: {
           priceEfficiency,
           deliverySpeed,
@@ -141,7 +169,11 @@ export class ARBMultiFactorRanker {
     }
 
     // Find fastest
-    const fastestCandidate = [...scored].sort((a, b) => b.scoreBreakdown.deliverySpeed - a.scoreBreakdown.deliverySpeed)[0];
+    const fastestCandidate = [...scored].sort((a, b) =>
+      b.scoreBreakdown.deliverySpeed - a.scoreBreakdown.deliverySpeed ||
+      (a.etaMinutes ?? Infinity) - (b.etaMinutes ?? Infinity) ||
+      a.listing.totalLandedCost - b.listing.totalLandedCost
+    )[0];
     if (fastestCandidate && fastestCandidate.scoreBreakdown.deliverySpeed > 50) {
       if (!fastestCandidate.badges.some(b => b.includes('Fastest'))) {
         fastestCandidate.badges.push('⚡ Fastest Delivery');

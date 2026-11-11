@@ -197,11 +197,31 @@ export class ARBQueryExtractor {
     if (qtyMatch) {
       const wordMap: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, ten: 10, dozen: 12 };
       quantity = wordMap[qtyMatch[1].toLowerCase()] || parseInt(qtyMatch[1], 10) || 1;
+    } else {
+      // General form: a small count at the start of the request or right after an ordering verb,
+      // followed by a product word ("3 butter naan", "order 2 pepperoni pizzas").
+      // A number glued to / followed by a unit is a spec or pack size, not a count
+      // ("16gb ram", "15 inch laptop", "1 litre milk", "12 eggs", "10 strips").
+      const NOT_A_COUNT = '(?:gb|tb|mb|hz|mhz|mg|kg|g|gm|gms|ml|l|ltr|litres?|liters?|inch|inches|in|cm|mm|m|x|k|w|v|mah|pcs?|pieces?|eggs?|strips?|tablets?|capsules?|years?|months?|days?|hours?|mins?|minutes?|star|th|st|nd|rd|gen|series|pro|plus|max)\\b';
+      const generalQty = lower.match(new RegExp(`(?:^|\\b(?:order|buy|get|send|want|need|book)\\s+(?:me\\s+)?)([1-9][0-9]?)\\s+(?!${NOT_A_COUNT})[a-z]`, 'i'));
+      if (generalQty) {
+        const n = parseInt(generalQty[1], 10);
+        if (n >= 2 && n <= 50) quantity = n;
+      }
     }
 
     // 5. Must-Have (Hard) vs Nice-To-Have (Soft) Constraints
     const mandatorySpecs: Record<string, string | number | boolean> = {};
     const softPreferences: Record<string, string | number | boolean> = {};
+
+    // Dietary requirement ("veg pizza", "pure veg", "non-veg burger", "vegan")
+    if (/\bnon[- ]?veg(?:etarian)?\b/i.test(lower)) {
+      mandatorySpecs['dietary'] = 'non-veg';
+    } else if (/\bvegan\b/i.test(lower)) {
+      mandatorySpecs['dietary'] = 'vegan';
+    } else if (/\b(?:veg|vegetarian|pure veg|eggless)\b/i.test(lower)) {
+      mandatorySpecs['dietary'] = 'veg';
+    }
 
     // Check soft RAM preference (e.g. "16GB, ideally 32GB" or "minimum 16GB, preferred 32GB")
     const softRamMatch = lower.match(/(?:ideally|preferably|preferred|nice to have|if possible)\s*([0-9]{1,3})\s*(?:gb|gigabytes?)/i);

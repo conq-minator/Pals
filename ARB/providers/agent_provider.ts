@@ -79,7 +79,12 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     const targetMerchants: string[] = typeof rawTargets === 'string'
       ? rawTargets.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
       : [];
-    
+    const rawExcluded = mandatorySpecifications?.['excluded_merchants'];
+    const excludedMerchants: string[] = typeof rawExcluded === 'string'
+      ? rawExcluded.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
+    const quantity = Math.max(1, payload.quantity ?? 1);
+
     // 1. Ensure live forex rates are available
     await ARBCurrencyConverter.refreshRates();
 
@@ -120,15 +125,20 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       // Targeted merchant check (e.g. "pizza from dominos", "milk on blinkit")
       if (targetMerchants.length > 0 && !targetMerchants.some(t => item.domain.toLowerCase().includes(t))) continue;
 
+      // Merchant exclusion check (e.g. follow-up "skip swiggy")
+      if (excludedMerchants.some(x => item.domain.toLowerCase().includes(x) || item.merchantName.toLowerCase().includes(x))) continue;
+
       // Brand exclusion check
       if (excludedBrands && excludedBrands.some(eb => eb.toLowerCase() === item.brand.toLowerCase())) {
         continue;
       }
 
-      // Currency conversion via live forex
-      const convertedBase = ARBCurrencyConverter.convert(item.basePrice, item.nativeCurrency, targetCurrency);
+      // Currency conversion via live forex. Item price and per-unit tax scale with the
+      // requested quantity; delivery is charged once per order.
+      const convertedBase = ARBCurrencyConverter.convert(item.basePrice * quantity, item.nativeCurrency, targetCurrency);
       let convertedShipping = ARBCurrencyConverter.convert(item.shipping, item.nativeCurrency, targetCurrency);
-      let convertedTax = ARBCurrencyConverter.convert(item.tax, item.nativeCurrency, targetCurrency);
+      let convertedTax = ARBCurrencyConverter.convert(item.tax * quantity, item.nativeCurrency, targetCurrency);
+      const crossBorder = item.nativeCurrency !== targetCurrency;
 
       // Deal Arbitration (Price Match / Concessions / Promo Vouchers)
       const deal = ARBDealArbitrator.arbitrateDeal(item.domain, convertedBase, targetCurrency);
@@ -142,7 +152,8 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         productTitle: item.title,
         category: payload.category,
         deliveryPostalCode: payload.deliveryPostalCode,
-        discountAmount: deal.successful ? deal.savingsAmount : 0
+        discountAmount: deal.successful ? deal.savingsAmount : 0,
+        crossBorder
       });
 
       // Filter out if merchant cannot service the requested postal code
@@ -150,8 +161,13 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         continue;
       }
 
-      // If item did not have curated shipping/tax, adopt verified calculated landed cost figures
-      if (item.shipping === 0 && item.tax === 0) {
+      if (crossBorder) {
+        // Importing from another market always adds international shipping and import duty,
+        // whether or not the shopper supplied a postal code.
+        convertedShipping += landedCalc.shippingFee;
+        convertedTax += landedCalc.customsDuty;
+      } else if (item.shipping === 0 && item.tax === 0) {
+        // Item has no curated shipping/tax: use the merchant fee-schedule estimate
         convertedShipping = landedCalc.shippingFee + landedCalc.platformFee + landedCalc.packagingFee;
         convertedTax = landedCalc.taxes + landedCalc.customsDuty;
       }
@@ -159,19 +175,12 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       const rawLanded = effectivePrice + convertedShipping + convertedTax;
       const totalLandedCost = targetCurrency.toUpperCase() === 'INR' ? Math.round(rawLanded) : Math.round(rawLanded * 100) / 100;
 
-      // Hard budget ceiling check
-      if (totalLandedCost > budgetCeiling) continue;
+      // NOTE: budget and spec filtering are deliberately NOT applied here. The agent loop
+      // enforces them and needs the near-misses to suggest the closest alternatives.
 
       // Trust score evaluation
       const trust = ARBTrustScorer.evaluate(item.domain);
       if (trust.score < minMerchantTrustScore) continue;
-
-      // Spec constraints verification
-      if (mandatorySpecifications && Object.keys(mandatorySpecifications).length > 0) {
-        const normalized = ARBSpecNormalizer.normalize(item.title, item.specs);
-        const check = ARBSpecNormalizer.satisfiesConstraints(normalized, mandatorySpecifications);
-        if (!check.satisfied) continue;
-      }
 
       // Canonical product identity deduplication (preserves distinct variants like CL30 vs CL36)
       const identity = ARBCanonicalIdentity.extractIdentity(item.title, item.brand, item.specs, item.url);
@@ -184,8 +193,12 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         pros.push(landedCalc.pincodeNote);
       }
       const cons = [...item.cons];
-      if (item.nativeCurrency !== targetCurrency) {
-        cons.push(`Forex converted from ${item.basePrice.toLocaleString()} ${item.nativeCurrency} at live exchange rate`);
+      if (quantity > 1) {
+        pros.unshift(`Price shown is for ${quantity} units`);
+      }
+      if (crossBorder) {
+        cons.push(`Forex converted from ${(item.basePrice * quantity).toLocaleString()} ${item.nativeCurrency} at live exchange rate`);
+        cons.push(`Cross-border purchase: includes estimated international shipping (${landedCalc.shippingFee.toLocaleString()} ${targetCurrency}) and import duty (${landedCalc.customsDuty.toLocaleString()} ${targetCurrency})`);
       }
 
       results.push({

@@ -2,13 +2,13 @@ import { CentralCallsSystem } from '../../calls/index.js';
 import { PalsLogger } from '../../shared/logging/index.js';
 import { PalCallEnvelope } from '../../shared/types/index.js';
 
-export interface ProgressPayload {
+export type ProgressPayload = {
   taskId: string;
   progressPercent: number;
   statusMessage: string;
   partialResultsFound?: number;
   emittedAt: string;
-}
+};
 
 export type ProgressListener = (payload: ProgressPayload) => void;
 

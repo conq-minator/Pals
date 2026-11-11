@@ -63,6 +63,8 @@ test('ARBProgressEmitter: emits lifecycle events and supports task cancellation'
 
 test('ARBSelfVerifier: audits candidates against hard requirements and discards violators', () => {
   const mockListingPass: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-PASS',
     productTitle: 'Lenovo Legion 5 (16GB RAM, 1024GB SSD, RTX 4060)',
     merchantName: 'Amazon',
@@ -80,6 +82,8 @@ test('ARBSelfVerifier: audits candidates against hard requirements and discards 
   };
 
   const mockListingViolate: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-FAIL',
     productTitle: 'Asus Vivobook (8GB RAM, 512GB SSD)',
     merchantName: 'Flipkart',
@@ -125,6 +129,8 @@ test('ARBSelfVerifier: audits candidates against hard requirements and discards 
 
 test('ARBAlternativeFinder: finds closest budget stretch and spec step-downs when 0 qualify', () => {
   const overBudgetHighSpec: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-OVER',
     productTitle: 'Lenovo Legion Pro 7i (32GB DDR5 RAM, 1TB SSD, RTX 4080)',
     merchantName: 'Amazon',
@@ -142,6 +148,8 @@ test('ARBAlternativeFinder: finds closest budget stretch and spec step-downs whe
   };
 
   const withinBudgetLowerSpec: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-WITHIN',
     productTitle: 'Lenovo IdeaPad Gaming (16GB RAM, 512GB SSD, RTX 3050)',
     merchantName: 'Flipkart',
@@ -204,7 +212,12 @@ test('ARBTaskStateStore & refineResearch: enables stateful follow-up refinement'
   assert.ok(cheaperResult);
   const cheaperState = ARBTaskStateStore.getInstance().get(taskId);
   assert.ok(cheaperState);
-  assert.ok(cheaperState.payload.budgetCeiling < 80000, 'Budget ceiling should have dropped');
+  // Either strictly cheaper options were found (budget ceiling lowered), or ARB keeps the
+  // previous results and says the shopper is already on the cheapest qualifying option.
+  assert.ok(
+    cheaperState.payload.budgetCeiling < 80000 || /No cheaper option found/.test(cheaperResult.arbitrationSummary),
+    'Budget ceiling should have dropped, or ARB should report that nothing cheaper exists'
+  );
 
   // Refine 2: "only veg" on food search
   const foodTaskId = 'refine-food-session-2';
@@ -222,5 +235,6 @@ test('ARBTaskStateStore & refineResearch: enables stateful follow-up refinement'
   // Refine 3: "skip Flipkart"
   await service.refineResearch(taskId, 'skip flipkart');
   const skipState = ARBTaskStateStore.getInstance().get(taskId);
-  assert.ok(skipState?.payload.excludedBrands?.includes('flipkart'));
+  // Skipping a merchant is recorded as a merchant exclusion (not a brand exclusion)
+  assert.equal(skipState?.payload.mandatorySpecifications?.['excluded_merchants'], 'flipkart');
 });

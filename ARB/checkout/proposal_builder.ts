@@ -13,6 +13,7 @@ export class ARBProposalBuilder {
       selectedColor?: string;
       selectedSize?: string;
       destinationPincode?: string;
+      quantity?: number;
       customSpecs?: Record<string, string>;
     }
   ): PurchaseProposal {
@@ -39,12 +40,20 @@ export class ARBProposalBuilder {
       'NET_BANKING'
     ];
 
-    const prefilledShipping = {
+    // Never invent a delivery address: the pincode is only included when the shopper supplied one.
+    const prefilledShipping: Record<string, string> = {
       productSku: listing.sku,
       merchantDomain: listing.merchantDomain,
-      destinationPincode: options?.destinationPincode || '560001',
       directCheckoutUrl: listing.productUrl
     };
+    if (options?.destinationPincode) {
+      prefilledShipping.destinationPincode = options.destinationPincode;
+    }
+
+    // Listings priced for several units announce it ("Price shown is for N units")
+    const unitsNote = listing.pros.map(p => p.match(/^Price shown is for ([0-9]+) units$/)).find(Boolean);
+    const quantity = Math.max(1, options?.quantity ?? (unitsNote ? parseInt(unitsNote[1], 10) : 1));
+    const round2 = (n: number) => Math.round(n * 100) / 100;
 
     const pulseHandoffPayload = {
       action: 'PULSE:payment.execute',
@@ -64,8 +73,8 @@ export class ARBProposalBuilder {
         {
           sku: listing.sku,
           title: listing.productTitle,
-          quantity: 1,
-          unitPrice: basePrice - discountApplied
+          quantity,
+          unitPrice: round2((basePrice - discountApplied) / quantity)
         }
       ],
       breakdown: {

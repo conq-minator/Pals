@@ -57,9 +57,11 @@ export class ARBTaskStateStore {
     // 1. "Cheaper" or Lower Budget
     if (lower.includes('cheaper') || lower.includes('lower price') || lower.includes('less expensive')) {
       if (existing.qualifyingListings.length > 0) {
-        // Lower budget cap to 10% below the lowest found item, or 85% of previous budget
-        const minLanded = existing.qualifyingListings[0].totalLandedCost;
-        payload.budgetCeiling = Math.max(1, Math.round(minLanded * 0.9));
+        // "Cheaper" = strictly cheaper than the option currently recommended (rank #1).
+        // (Rank #1 is not always the cheapest, e.g. when a preferred brand is ranked first.)
+        const topLanded = existing.qualifyingListings[0].totalLandedCost;
+        const step = topLanded >= 100 ? 1 : 0.01;
+        payload.budgetCeiling = Math.max(step, Math.round((topLanded - step) * 100) / 100);
       } else {
         payload.budgetCeiling = Math.round(payload.budgetCeiling * 0.8);
       }
@@ -93,8 +95,10 @@ export class ARBTaskStateStore {
       };
     }
 
-    const storageMatch = lower.match(/([0-9]{1,4})\s*(gb|tb)\s*(?:ssd|storage)?/i);
-    if (storageMatch && !lower.includes('ram')) {
+    // Storage needs an explicit storage word or a TB unit; a bare "32gb" is RAM, not storage.
+    const storageMatch = lower.match(/([0-9]{1,4})\s*(tb)\b/i) ||
+                         lower.match(/([0-9]{1,4})\s*(gb)\s*(?:ssd|storage|hdd|nvme|rom)/i);
+    if (storageMatch) {
       const isTb = storageMatch[2].toUpperCase() === 'TB';
       const val = parseInt(storageMatch[1], 10);
       payload.mandatorySpecifications = {
@@ -104,27 +108,35 @@ export class ARBTaskStateStore {
     }
 
     // 4. Merchant Inclusions / Exclusions ("skip Flipkart", "exclude Amazon", "only from Croma")
-    const skipMatch = lower.match(/(?:skip|exclude|avoid|no)\s+([a-z0-9\s,]+)/i);
-    if (skipMatch) {
-      const skipTarget = skipMatch[1].toLowerCase();
-      const currentTargets = typeof payload.mandatorySpecifications?.['target_merchants'] === 'string'
-        ? (payload.mandatorySpecifications['target_merchants'] as string).split(',')
-        : [];
+    const skipMatch = lower.match(/(?:skip|exclude|avoid|without|not from|no)\s+([a-z0-9\s,&']+)/i);
+    const isMerchantSkip = skipMatch && !/^(?:chicken|meat|egg|onion|garlic)/.test(skipMatch[1].trim());
+    if (skipMatch && isMerchantSkip) {
+      // Any merchant can be skipped: names are matched against merchant domain/name by the providers.
+      const names = skipMatch[1]
+        .split(/,|\band\b|&/)
+        .map(n => n.replace(/['\s]/g, '').trim())
+        .filter(n => n.length >= 3);
 
-      if (skipTarget.includes('flipkart')) {
-        payload.mandatorySpecifications['target_merchants'] = currentTargets.filter(t => !t.includes('flipkart')).join(',');
-        payload.excludedBrands = [...(payload.excludedBrands || []), 'flipkart'];
+      const specs = { ...payload.mandatorySpecifications };
+      const alreadyExcluded = typeof specs['excluded_merchants'] === 'string'
+        ? (specs['excluded_merchants'] as string).split(',').filter(Boolean)
+        : [];
+      specs['excluded_merchants'] = Array.from(new Set([...alreadyExcluded, ...names])).join(',');
+
+      // A merchant that is now skipped can no longer be a target
+      if (typeof specs['target_merchants'] === 'string') {
+        const remaining = (specs['target_merchants'] as string).split(',').filter(t => t && !names.some(n => t.includes(n)));
+        if (remaining.length > 0) specs['target_merchants'] = remaining.join(',');
+        else delete specs['target_merchants'];
       }
-      if (skipTarget.includes('amazon')) {
-        payload.mandatorySpecifications['target_merchants'] = currentTargets.filter(t => !t.includes('amazon')).join(',');
-      }
+      payload.mandatorySpecifications = specs;
     }
 
-    const onlyMatch = lower.match(/(?:only from|from|on)\s+([a-z0-9]+)/i);
-    if (onlyMatch && !lower.includes('skip') && !lower.includes('avoid')) {
+    const onlyMatch = lower.match(/(?:only from|only on|from|on)\s+([a-z0-9']+(?:\s+hut)?)/i);
+    if (onlyMatch && !skipMatch) {
       payload.mandatorySpecifications = {
         ...payload.mandatorySpecifications,
-        target_merchants: onlyMatch[1].toLowerCase()
+        target_merchants: onlyMatch[1].toLowerCase().replace(/['\s]/g, '')
       };
     }
 

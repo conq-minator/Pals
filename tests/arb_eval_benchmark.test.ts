@@ -37,6 +37,8 @@ test('ARBRelevanceScorer: rejects accessories and distinguishes components from 
 
 test('ARBMultiFactorRanker: scores multiple dimensions and assigns labelled badges', () => {
   const cheapSlow: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-CHEAP',
     productTitle: 'Budget Pizza Combo',
     merchantName: 'Store A',
@@ -54,6 +56,8 @@ test('ARBMultiFactorRanker: scores multiple dimensions and assigns labelled badg
   };
 
   const fastExpensive: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SKU-FAST',
     productTitle: 'Express Gourmet Pizza',
     merchantName: 'Store B',
@@ -71,6 +75,7 @@ test('ARBMultiFactorRanker: scores multiple dimensions and assigns labelled badg
   };
 
   const payload: ARBResearchPayload = {
+    mandatorySpecifications: {},
     productQuery: 'pizza delivery',
     budgetCeiling: 600,
     currency: 'INR',
@@ -113,6 +118,8 @@ test('ARBTrustScorer: derives transparent scores from verifiable merchant signal
 
 test('ARBProposalBuilder: formats actionable PULSE payment handoff payload', () => {
   const listing: MerchantListing = {
+    merchantId: 'mch_test',
+    trustReasons: [],
     sku: 'SWIGGY-PIZZA-TEST',
     productTitle: 'Overload Cheese Pizza',
     merchantName: 'Swiggy',
@@ -158,6 +165,7 @@ test('ARBPreferenceStore: persists user preferences and enriches queries across 
   });
 
   const payload: ARBResearchPayload = {
+    mandatorySpecifications: {},
     productQuery: 'biryani order',
     budgetCeiling: 500,
     currency: 'INR',
@@ -174,6 +182,7 @@ test('ARBPreferenceStore: persists user preferences and enriches queries across 
 
   // If prompt explicitly asks for chicken, user's default veg preference is NOT applied
   const nonVegPayload: ARBResearchPayload = {
+    mandatorySpecifications: {},
     productQuery: 'chicken biryani delivery',
     budgetCeiling: 600,
     currency: 'INR',
