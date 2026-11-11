@@ -160,6 +160,7 @@ export const ARBResearchPayloadSchema = z.object({
   mandatorySpecifications: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
   preferredBrands: z.array(z.string()).optional(),
   excludedBrands: z.array(z.string()).optional(),
+  targetMerchants: z.array(z.string()).optional(),
   deliveryPostalCode: z.string().optional(),
   minMerchantTrustScore: z.number().min(0).max(100).default(80),
   softPreferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
