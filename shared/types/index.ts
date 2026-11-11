@@ -162,9 +162,16 @@ export const ARBResearchPayloadSchema = z.object({
   excludedBrands: z.array(z.string()).optional(),
   targetMerchants: z.array(z.string()).optional(),
   deliveryPostalCode: z.string().optional(),
-  minMerchantTrustScore: z.number().min(0).max(100).default(80)
+  minMerchantTrustScore: z.number().min(0).max(100).default(80),
+  softPreferences: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  quantity: z.number().int().positive().optional(),
+  deliveryBy: z.string().optional(),
+  budgetFlexibility: z.enum(['STRICT', 'FLEXIBLE_10_PERCENT', 'FLEXIBLE_20_PERCENT']).optional(),
+  allowAmbiguousGuess: z.boolean().optional()
 });
 export type ARBResearchPayload = z.infer<typeof ARBResearchPayloadSchema>;
+/** Caller-facing shape: fields with schema defaults may be omitted. */
+export type ARBResearchPayloadInput = z.input<typeof ARBResearchPayloadSchema>;
 
 export const MerchantListingSchema = z.object({
   merchantId: z.string(),
@@ -183,7 +190,8 @@ export const MerchantListingSchema = z.object({
   trustScore: z.number().min(0).max(100),
   trustReasons: z.array(z.string()),
   pros: z.array(z.string()),
-  cons: z.array(z.string())
+  cons: z.array(z.string()),
+  unverifiedSpecs: z.array(z.string()).optional()
 });
 export type MerchantListing = z.infer<typeof MerchantListingSchema>;
 
@@ -192,7 +200,10 @@ export const ARBResearchResultSchema = z.object({
   totalListingsScanned: z.number().int().nonnegative(),
   qualifyingListingsFound: z.number().int().nonnegative(),
   topRecommendations: z.array(MerchantListingSchema),
-  arbitrationSummary: z.string()
+  arbitrationSummary: z.string(),
+  needsInput: z.boolean().optional(),
+  inputQuestion: z.string().optional(),
+  inputOptions: z.array(z.string()).optional()
 });
 export type ARBResearchResult = z.infer<typeof ARBResearchResultSchema>;
 
@@ -224,6 +235,9 @@ export const PurchaseProposalSchema = z.object({
     description: z.string()
   }).optional(),
   merchantTrustScore: z.number().min(0).max(100),
+  supportedPaymentMethods: z.array(z.string()).optional(),
+  prefilledShipping: z.record(z.string(), z.string()).optional(),
+  pulseHandoffPayload: z.record(z.string(), z.unknown()).optional(),
   expiresAt: z.string().datetime()
 });
 export type PurchaseProposal = z.infer<typeof PurchaseProposalSchema>;

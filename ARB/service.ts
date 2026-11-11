@@ -1,5 +1,6 @@
 import {
   ARBResearchPayload,
+  ARBResearchPayloadInput,
   ARBResearchResult,
   MerchantListing,
   PurchaseProposal,
@@ -14,6 +15,12 @@ import { ARBDealArbitrator } from './negotiation/deal_arbitrator.js';
 import { MultiMerchantCatalogProvider } from './providers/catalog_provider.js';
 import { IMerchantProvider } from './providers/base_provider.js';
 import { ARBProposalBuilder } from './checkout/proposal_builder.js';
+import { ARBQueryMatcher } from './extractors/query_matcher.js';
+import { ARBCanonicalIdentity, CanonicalProductGroup } from './extractors/canonical_product.js';
+import { ARBAgentLoop } from './agent/reasoning_loop.js';
+import { ARBTaskStateStore } from './interaction/task_state_store.js';
+import { ClosestAlternativesReport } from './agent/alternative_finder.js';
+import { ARBPreferenceStore, UserPreferences } from './memory/preference_store.js';
 
 export interface ArbServiceConfig {
   providers?: IMerchantProvider[];
@@ -28,24 +35,40 @@ export interface ArbServiceConfig {
 export class ArbService {
   private logger = new PalsLogger('ARB');
   private providers: IMerchantProvider[];
+  private agentLoop: ARBAgentLoop;
 
   constructor(
     config?: ArbServiceConfig,
     callsSystem: CentralCallsSystem = CentralCallsSystem.getInstance()
   ) {
     this.providers = config?.providers || MultiMerchantCatalogProvider.createDefaultProviders();
+    this.agentLoop = new ARBAgentLoop(this.providers);
 
     // Register call handlers with the Central Calls System (calls/)
-    callsSystem.registerHandler<ARBResearchPayload, ARBResearchResult>(
+    callsSystem.registerHandler<ARBResearchPayloadInput, ARBResearchResult>(
       'ARB',
       'research.start',
       async (envelope) => this.conductResearch(envelope.payload, envelope.correlationId)
     );
 
-    callsSystem.registerHandler<{ prompt: string; defaultBudget?: number }, ExtractedRequirements>(
+    callsSystem.registerHandler<{ prompt: string; defaultBudget?: number; useLlm?: boolean }, ExtractedRequirements>(
       'ARB',
       'extract.requirements',
-      async (envelope) => this.extractRequirements(envelope.payload.prompt, envelope.payload.defaultBudget)
+      async (envelope) => envelope.payload.useLlm
+        ? this.extractRequirementsAsync(envelope.payload.prompt, envelope.payload.defaultBudget)
+        : this.extractRequirements(envelope.payload.prompt, envelope.payload.defaultBudget)
+    );
+
+    callsSystem.registerHandler<{ taskId: string; refinementPrompt: string }, ARBResearchResult>(
+      'ARB',
+      'research.refine',
+      async (envelope) => this.refineResearch(envelope.payload.taskId, envelope.payload.refinementPrompt, envelope.correlationId)
+    );
+
+    callsSystem.registerHandler<{ taskId: string; selectedOption: string }, ARBResearchResult>(
+      'ARB',
+      'research.answer',
+      async (envelope) => this.answerResearch(envelope.payload.taskId, envelope.payload.selectedOption, envelope.correlationId)
     );
 
     callsSystem.registerHandler<{ listing: MerchantListing; taskId: string; options?: any }, PurchaseProposal>(
@@ -66,107 +89,122 @@ export class ArbService {
   }
 
   /**
+   * Asynchronous LLM-backed requirement extraction with offline fallback.
+   */
+  public async extractRequirementsAsync(prompt: string, defaultBudget?: number): Promise<ExtractedRequirements> {
+    this.logger.info(`Extracting requirements with LLM from prompt: "${prompt}"`);
+    return ARBQueryExtractor.extractWithLLM(prompt, defaultBudget);
+  }
+
+  /**
    * Main Market Research & Comparison Pipeline.
+   * Driven by the autonomous plan -> act -> observe -> decide Agent Loop.
    */
   public async conductResearch(
-    payload: ARBResearchPayload,
-    correlationId: string
+    payload: ARBResearchPayloadInput,
+    correlationId: string,
+    userId?: string
   ): Promise<ARBResearchResult> {
-    this.logger.info(`Starting market research for: "${payload.productQuery}"`, undefined, correlationId);
-
-    // 1. Schema Validation
+    // 1. Schema Validation. The parsed result (with schema defaults applied, e.g. the
+    //    80/100 trust floor) is what the pipeline runs on — never the raw caller object.
     const validation = ARBResearchPayloadSchema.safeParse(payload);
     if (!validation.success) {
       this.logger.error('Invalid ARB research payload', undefined, correlationId);
       throw new Error(`Invalid ARB research payload: ${JSON.stringify(validation.error.format())}`);
     }
 
-    const { budgetCeiling, currency, productQuery, mandatorySpecifications, minMerchantTrustScore } = payload;
+    // Enrich with persistent user preferences if userId is provided or present in payload (Flaw 20)
+    const effectiveUserId = userId || (payload as any).userId;
+    const effectivePayload = effectiveUserId
+      ? ARBPreferenceStore.getInstance().enrichPayload(effectiveUserId, validation.data)
+      : validation.data;
 
-    // 2. Filter providers if specific target merchants are requested
-    let activeProviders = this.providers;
-    if (mandatorySpecifications && typeof mandatorySpecifications['target_merchants'] === 'string') {
-      const targetList = (mandatorySpecifications['target_merchants'] as string).split(',').map(m => m.trim().toLowerCase());
-      const filtered = this.providers.filter(p => targetList.some(target => p.domain.toLowerCase().includes(target)));
-      if (filtered.length > 0) {
-        activeProviders = filtered;
-        this.logger.info(`Targeted research locked to: ${filtered.map(p => p.merchantName).join(', ')}`);
-      }
-    }
+    this.logger.info(`Starting market research for: "${effectivePayload.productQuery}"`, undefined, correlationId);
 
-    // 3. Query all configured merchant providers in parallel
-    let totalListingsScanned = 0;
-    const aggregatedListings: MerchantListing[] = [];
-
-    const searchPromises = activeProviders.map(async (provider) => {
-      try {
-        const results = await provider.search(payload);
-        totalListingsScanned += results.length;
-        return results;
-      } catch (err: unknown) {
-        this.logger.warn(`Provider '${provider.merchantName}' search failed: ${err instanceof Error ? err.message : String(err)}`);
-        return [];
-      }
-    });
-
-    const providerOutputs = await Promise.all(searchPromises);
-    for (const batch of providerOutputs) {
-      aggregatedListings.push(...batch);
-    }
-
-    // 3. Filter & Normalize Specifications against Mandatory Constraints
-    const qualifyingListings: MerchantListing[] = [];
-
-    for (const listing of aggregatedListings) {
-      // Must not exceed hard budget ceiling
-      if (listing.totalLandedCost > budgetCeiling) {
-        continue;
-      }
-
-      // Must meet minimum trust score
-      if (listing.trustScore < minMerchantTrustScore) {
-        continue;
-      }
-
-      // Spec validation if mandatory requirements exist
-      if (mandatorySpecifications && Object.keys(mandatorySpecifications).length > 0) {
-        const normalized = ARBSpecNormalizer.normalize(listing.productTitle);
-        const check = ARBSpecNormalizer.satisfiesConstraints(normalized, mandatorySpecifications);
-        if (!check.satisfied) {
-          this.logger.debug(`Listing '${listing.sku}' rejected: ${check.failedReasons.join('; ')}`);
-          continue;
-        }
-      }
-
-      qualifyingListings.push(listing);
-    }
-
-    // 4. Rank by Total Landed Cost (Lowest first), breaking ties by Trust Score (Highest first)
-    qualifyingListings.sort((a, b) => {
-      if (a.totalLandedCost !== b.totalLandedCost) {
-        return a.totalLandedCost - b.totalLandedCost;
-      }
-      return b.trustScore - a.trustScore;
-    });
-
-    // 5. Generate In-Depth Arbitration Report & Answer Matrix
-    const summary = this.generateComprehensiveReport(
-      qualifyingListings,
-      totalListingsScanned,
-      budgetCeiling,
-      currency,
-      mandatorySpecifications
+    // 2. Delegate to Autonomous Agent Reasoning Loop
+    return this.agentLoop.run(
+      effectivePayload,
+      correlationId,
+      (qualifying, totalScanned, budget, currency, query, specs, canonicalGroups, alternatives) =>
+        this.generateComprehensiveReport(
+          qualifying,
+          totalScanned,
+          budget,
+          currency,
+          query,
+          specs,
+          canonicalGroups,
+          alternatives
+        )
     );
+  }
 
-    this.logger.info(`Research concluded: ${qualifyingListings.length} qualifying listings ranked`, undefined, correlationId);
+  /**
+   * User Preference Management across sessions (Flaw 20).
+   */
+  public setUserPreferences(userId: string, prefs: Partial<Omit<UserPreferences, 'userId' | 'updatedAt'>>): UserPreferences {
+    return ARBPreferenceStore.getInstance().setPreferences(userId, prefs);
+  }
 
-    return {
-      taskId: correlationId,
-      totalListingsScanned,
-      qualifyingListingsFound: qualifyingListings.length,
-      topRecommendations: qualifyingListings,
-      arbitrationSummary: summary
-    };
+  public getUserPreferences(userId: string): UserPreferences | undefined {
+    return ARBPreferenceStore.getInstance().getPreferences(userId);
+  }
+
+  /**
+   * Follow-up research refinement without restarting from scratch (Flaw 4).
+   * Modifies existing task state ("cheaper", "only veg", "same but 32gb", "skip Flipkart")
+   * and re-runs only the affected steps.
+   */
+  public async refineResearch(
+    taskId: string,
+    refinementPrompt: string,
+    correlationId: string = taskId
+  ): Promise<ARBResearchResult> {
+    this.logger.info(`Refining research for task ${taskId}: "${refinementPrompt}"`);
+    const stateStore = ARBTaskStateStore.getInstance();
+    const previous = stateStore.get(taskId);
+    const updatedPayload = stateStore.applyRefinement(taskId, refinementPrompt);
+    const refined = await this.conductResearch(updatedPayload, correlationId);
+
+    // "Cheaper" when the shopper is already looking at the cheapest qualifying option:
+    // keep the previous results (and state) instead of returning an empty list.
+    const askedCheaper = /cheaper|lower price|less expensive/i.test(refinementPrompt);
+    if (askedCheaper && refined.qualifyingListingsFound === 0 && previous && previous.qualifyingListings.length > 0) {
+      stateStore.save(previous);
+      const top = previous.qualifyingListings[0];
+      return {
+        taskId: refined.taskId,
+        totalListingsScanned: previous.scannedListingsCount,
+        qualifyingListingsFound: previous.qualifyingListings.length,
+        topRecommendations: previous.qualifyingListings,
+        arbitrationSummary: [
+          `> **No cheaper option found.** [${top.productTitle}](${top.productUrl}) at **${top.totalLandedCost.toLocaleString()} ${top.currency}** on ${top.merchantName} is already the lowest landed price that meets your requirements.`,
+          ``,
+          previous.arbitrationSummary
+        ].join('\n')
+      };
+    }
+    return refined;
+  }
+
+  /**
+   * Resumes paused research after user selects an ambiguity clarification option (Item 9).
+   */
+  public async answerResearch(
+    taskId: string,
+    selectedOption: string,
+    correlationId: string = taskId
+  ): Promise<ARBResearchResult> {
+    this.logger.info(`Answering ambiguity for task ${taskId}: "${selectedOption}"`);
+    const stateStore = ARBTaskStateStore.getInstance();
+    const existing = stateStore.get(taskId);
+    if (!existing) {
+      throw new Error(`Task '${taskId}' not found to resume with answer`);
+    }
+
+    const updatedPayload = stateStore.applyRefinement(taskId, selectedOption);
+    updatedPayload.allowAmbiguousGuess = true;
+    return this.conductResearch(updatedPayload, correlationId);
   }
 
   /**
@@ -177,7 +215,10 @@ export class ArbService {
     totalScanned: number,
     budgetCeiling: number,
     currency: string,
-    mandatorySpecs?: Record<string, string | number | boolean>
+    productQuery: string,
+    mandatorySpecs?: Record<string, string | number | boolean>,
+    canonicalGroups?: CanonicalProductGroup[],
+    alternatives?: ClosestAlternativesReport
   ): string {
     if (qualifyingListings.length === 0) {
       let specDetails = '';
@@ -187,12 +228,24 @@ export class ArbService {
       return [
         `### Market Research Diagnostic: No Qualifying Deals Found`,
         ``,
-        `> **Scanned:** ${totalScanned} listings across ${this.providers.length} verified national merchants.`,
+        `> **Scanned:** ${totalScanned} listings.`,
         `> **Budget Limit:** ${budgetCeiling.toLocaleString()} ${currency}`,
         ``,
         `**Why no listings qualified:**`,
-        `- Every scanned item either exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory hardware specifications${specDetails}.`,
-        `- **Guidance:** Consider adjusting your budget ceiling or relaxing specific hardware requirements (such as GPU or minimum RAM) to view entry-level alternatives.`
+        totalScanned === 0
+          ? `- ARB has no verified merchant data for this item yet, and live web search returned no priced listings. ARB does not invent listings or prices.`
+          : `- Every scanned item either exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory specifications${specDetails}.`,
+        ...(alternatives?.hasAlternatives
+          ? [
+              ``,
+              `**Closest Realistic Alternatives Identified:**`,
+              alternatives.recommendationText
+            ]
+          : [
+              totalScanned === 0
+                ? `- **Search directly:** [amazon.in](https://www.amazon.in/s?k=${encodeURIComponent(ARBQueryMatcher.extractCoreTokens(productQuery).join(' '))}) · [flipkart.com](https://www.flipkart.com/search?q=${encodeURIComponent(ARBQueryMatcher.extractCoreTokens(productQuery).join(' '))})`
+                : `- **Guidance:** Consider raising your budget ceiling or relaxing specific requirements to view entry-level alternatives.`
+            ])
       ].join('\n');
     }
 
@@ -205,9 +258,9 @@ export class ArbService {
       `**Top Recommendation:** **[${top.productTitle}](${top.productUrl})**`,
       `- **Merchant Source:** [${top.merchantName}](https://${top.merchantDomain})`,
       `- **Direct Product Link:** [${top.productUrl}](${top.productUrl})`,
-      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${savingsFromBudget > 0 ? `*(₹${savingsFromBudget.toLocaleString()} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
+      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${savingsFromBudget > 0 ? `*(${savingsFromBudget.toLocaleString()} ${currency} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
       `- **Merchant Trust Score:** **${top.trustScore}/100** (${top.trustScore >= 90 ? 'Exemplary' : 'Trusted'})`,
-      `- **Warranty:** ${top.warrantyPeriodMonths || 12} Months Official Coverage`,
+      top.warrantyPeriodMonths ? `- **Warranty:** ${top.warrantyPeriodMonths} Months Official Coverage` : `- **${top.pros.find(p => /^(delivery eta|estimated delivery):/i.test(p)) || 'Delivery: see merchant page'}**`,
       ``,
       `#### Side-by-Side Comparison Matrix`,
       ``,
@@ -221,12 +274,35 @@ export class ArbService {
       );
     });
 
+    // Cross-merchant price arbitration summary across identical models
+    const multiMerchantGroups = (canonicalGroups || []).filter(g => g.merchantCount > 1);
+    if (multiMerchantGroups.length > 0) {
+      sections.push(
+        ``,
+        `#### Cross-Merchant Price Arbitration (Identical Models)`,
+        ``
+      );
+      for (const group of multiMerchantGroups) {
+        const alts = group.alternativeMerchants.map(a => `${a.merchantName} (${a.landedCost.toLocaleString()} ${currency})`).join(', ');
+        sections.push(
+          `- **${group.bestListing.productTitle.substring(0, 45)}...**: Best price at **${group.bestListing.merchantName} (${group.minLandedCost.toLocaleString()} ${currency})** vs ${alts}${group.arbitrationSavings > 0 ? ` *(Saves ${group.arbitrationSavings.toLocaleString()} ${currency})*` : ''}`
+        );
+      }
+    }
+
+    const unverifiedNote = top.unverifiedSpecs && top.unverifiedSpecs.length > 0
+      ? `Partially verified - satisfied known parameters, with unverified specifications: ${top.unverifiedSpecs.join(', ')}.`
+      : `Satisfies all of your stated requirements${mandatorySpecs && Object.keys(mandatorySpecs).length > 0 ? ` (${Object.entries(mandatorySpecs).filter(([k]) => k !== 'target_merchants' && k !== 'excluded_merchants').map(([k, v]) => `${k}: ${v}`).join(', ')})` : ''}.`;
+
     sections.push(
       ``,
       `#### Why Option #1 Was Selected as the Winner:`,
       `1. **Landed Cost Efficiency:** It offers the lowest out-of-the-door price (${top.totalLandedCost.toLocaleString()} ${currency}) inclusive of all taxes, merchant surcharges, and delivery fees.`,
-      `2. **Merchant Credibility:** Backed by verified authorized status on **${top.merchantDomain}** with verified return policies and buyer-protected payment support.`,
-      `3. **Hardware Compliance:** Satisfies 100% of your requested hardware parameters without gray-market components.`,
+      `2. **Merchant Credibility:** **${top.merchantDomain}** scores ${top.trustScore}/100 on ARB's merchant trust profile (dealer status, return policy, payment protection).`,
+      `3. **Requirement Match:** ${unverifiedNote}`,
+      `4. **Verification Confidence:** ${top.pros.some(p => /schema\.org/i.test(p))
+        ? 'Price and stock read live from the merchant product page.'
+        : 'Requirements re-checked against the listing by the self-check audit. Price is an indicative reference, not a live quote — it is confirmed on the merchant page at checkout.'}`,
       ``,
       `#### Next Steps:`,
       `To proceed with **Option #1**, reply with: *"Prepare checkout for option 1"* and I will formulate the Purchase Proposal with an interactive approval card.`

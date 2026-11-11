@@ -9,8 +9,20 @@ export class ARBQueryMatcher {
     'under', 'below', 'less', 'than', 'max', 'maximum', 'budget', 'price', 
     'on', 'with', 'for', 'and', 'or', 'vs', 'in', 'to', 'at', 'buy', 
     'a', 'an', 'the', 'of', 'upto', 'around', 'within', 'delivery', 'pincode',
-    'least', 'official', 'store', 'stores', 'only', 'verified'
+    'least', 'official', 'store', 'stores', 'only', 'verified',
+    // conversational / delivery filler words (e.g. "order me a pizza near me asap")
+    'order', 'me', 'my', 'near', 'nearby', 'want', 'need', 'some', 'please', 'pls',
+    'deliver', 'delivered', 'home', 'now', 'asap', 'quick', 'fast', 'instant',
+    'online', 'cheapest', 'lowest', 'rs', 'inr', 'usd', 'it', 'is', 'can', 'you', 'from',
+    // dietary words are handled as hard constraints (mandatorySpecifications.dietary), not keywords
+    'veg', 'vegetarian', 'non-veg', 'nonveg', 'non', 'pure', 'eggless', 'vegan'
   ]);
+
+  /**
+   * Optional hook: lets a curated catalog vouch for a listing that was matched through an
+   * alias/synonym rather than literal keyword overlap. Registered by the everyday catalog.
+   */
+  public static catalogVouches: (query: string, listingTitle: string) => boolean = () => false;
 
   /**
    * Extracts essential search keywords from the user prompt.
@@ -45,6 +57,9 @@ export class ARBQueryMatcher {
     const coreTokens = this.extractCoreTokens(query);
     if (coreTokens.length === 0) {
       return { matches: true }; // Generic search (e.g. "under 60k"), allow category matching
+    }
+    if (this.catalogVouches(query, productTitle)) {
+      return { matches: true };
     }
 
     const titleLower = productTitle.toLowerCase();

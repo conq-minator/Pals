@@ -16,6 +16,7 @@ export interface ArbitrationAttempt {
   successful: boolean;
   dealType: DealType;
   couponCode?: string;
+  candidateCodes?: string[];
   originalPrice: number;
   discountedPrice: number;
   savingsAmount: number;
@@ -48,7 +49,8 @@ export interface CompetitorProof {
  */
 export class ARBDealArbitrator {
   /**
-   * Verified promotional codes registry for supported merchant platforms.
+   * Candidate promotional voucher index for supported merchant platforms.
+   * Vouchers are treated as unverified candidates until tested in a live cart.
    */
   private static merchantVoucherIndex: Record<string, Array<{ code: string; discountPercent?: number; fixedDiscount?: number; minSpend: number; description: string }>> = {
     'croma.com': [
@@ -127,104 +129,45 @@ export class ARBDealArbitrator {
     const cleanDomain = merchantDomain.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0];
 
     // ========================================================================
-    // CHANNEL 1: True Dynamic Merchant Negotiation & Price Matching
+    // CHANNEL 1: Merchant Price Matching (When Verified Competitor Proof Exists)
     // ========================================================================
     const dynamicConfig = this.dynamicNegotiationDestinations[cleanDomain];
 
-    if (dynamicConfig && basePrice >= 30000) {
-      if (dynamicConfig.channel === 'PRICE_MATCH_DESK' && competitorProof && competitorProof.competitorPrice < basePrice) {
-        // Price-Match Guarantee: Concession matching lower verified price
-        const priceDiff = basePrice - competitorProof.competitorPrice;
-        const matchedPrice = competitorProof.competitorPrice;
-        const transcript: NegotiationMessage[] = [
-          {
-            speaker: 'ARB_AGENT',
-            message: `Submitting Price-Match request: Product advertised at ${basePrice} ${currency} on ${cleanDomain}. Verifiable active competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Requesting price adjustment.`,
-            timestamp: new Date().toISOString()
-          },
-          {
-            speaker: 'MERCHANT_BOT',
-            message: `Automated Price-Match Engine verified competitor URL. Authorized price match discount of ${priceDiff} ${currency}. New approved checkout total: ${matchedPrice} ${currency}.`,
-            timestamp: new Date(Date.now() + 1500).toISOString()
-          }
-        ];
+    if (dynamicConfig && dynamicConfig.channel === 'PRICE_MATCH_DESK' && competitorProof && competitorProof.competitorPrice < basePrice) {
+      const priceDiff = basePrice - competitorProof.competitorPrice;
 
-        return {
-          attempted: true,
-          successful: true,
-          dealType: 'PRICE_MATCH_CONCESSION',
-          originalPrice: basePrice,
-          discountedPrice: matchedPrice,
-          savingsAmount: priceDiff,
-          currency,
-          transparencyDescription: `Price-Match Guarantee invoked with ${cleanDomain}: Matched lower competitor price from ${competitorProof.competitorName}, securing direct concession of ${priceDiff} ${currency}.`,
-          negotiationTranscript: transcript
-        };
-      }
-
-      if (dynamicConfig.channel === 'LIVE_CHATBOT' || dynamicConfig.channel === 'MAKE_OFFER_API') {
-        // Live bot offer exchange
-        const savings = Math.round(basePrice * dynamicConfig.maxConcessionPct);
-        const counterPrice = basePrice - savings;
-        const transcript: NegotiationMessage[] = [
-          {
-            speaker: 'ARB_AGENT',
-            message: `Inquiring on behalf of pre-approved PayPal buyer: Product sticker is ${basePrice} ${currency}. Client budget is constrained. Can you offer an instant purchase concession for immediate checkout?`,
-            timestamp: new Date().toISOString()
-          },
-          {
-            speaker: 'MERCHANT_BOT',
-            message: `Hello! I can issue a custom, single-use automated concession voucher for this active cart session. Approved counter-offer: ${counterPrice} ${currency} (${savings} ${currency} off).`,
-            timestamp: new Date(Date.now() + 2000).toISOString()
-          },
-          {
-            speaker: 'ARB_AGENT',
-            message: `Offer accepted. Preparing purchase proposal at negotiated rate of ${counterPrice} ${currency}.`,
-            timestamp: new Date(Date.now() + 3000).toISOString()
-          }
-        ];
-
-        return {
-          attempted: true,
-          successful: true,
-          dealType: 'DYNAMIC_NEGOTIATED_DEAL',
-          originalPrice: basePrice,
-          discountedPrice: counterPrice,
-          savingsAmount: savings,
-          currency,
-          transparencyDescription: `Successfully conducted dynamic negotiation with ${cleanDomain} automated sales desk: Secured custom single-use concession of ${savings} ${currency} (Official price cut, not a public code).`,
-          negotiationTranscript: transcript
-        };
-      }
+      return {
+        attempted: true,
+        successful: false, // Merchant has not yet agreed to match; reported as opportunity
+        dealType: 'PRICE_MATCH_CONCESSION',
+        originalPrice: basePrice,
+        discountedPrice: basePrice, // Do not reduce quoted price without actual merchant agreement
+        savingsAmount: priceDiff,
+        currency,
+        transparencyDescription: `Price-match opportunity on ${cleanDomain}: Lower verified competitor offer found on ${competitorProof.competitorName} at ${competitorProof.competitorPrice} ${currency} (${competitorProof.competitorUrl}). Potential savings: ${priceDiff} ${currency}. (Subject to merchant price-match policy at checkout)`
+      };
     }
 
     // ========================================================================
-    // CHANNEL 2: Promotional Code / Voucher Discovery (Arbitration, NOT Negotiation)
+    // CHANNEL 2: Promotional Code / Voucher Discovery (Candidate Vouchers, NOT Applied Without Cart Test)
     // ========================================================================
     const vouchers = this.merchantVoucherIndex[cleanDomain] || [];
-    for (const voucher of vouchers) {
-      if (basePrice >= voucher.minSpend) {
-        let savings = 0;
-        if (voucher.discountPercent) {
-          savings = Math.round(basePrice * voucher.discountPercent);
-        } else if (voucher.fixedDiscount) {
-          savings = voucher.fixedDiscount;
-        }
+    const qualifyingVouchers = vouchers.filter(v => basePrice >= v.minSpend);
 
-        if (savings > 0) {
-          return {
-            attempted: true,
-            successful: true,
-            dealType: 'PUBLIC_COUPON',
-            couponCode: voucher.code,
-            originalPrice: basePrice,
-            discountedPrice: basePrice - savings,
-            savingsAmount: savings,
-            currency,
-            transparencyDescription: `Applied verified merchant promotional voucher [${voucher.code}] for ${savings} ${currency} instant savings. (Public Promotional Code, not custom negotiation)`
-          };
-        }
-      }
+    if (qualifyingVouchers.length > 0) {
+      const bestVoucher = qualifyingVouchers[0];
+      return {
+        attempted: true,
+        successful: false, // Unverified until tested in live cart
+        dealType: 'PUBLIC_COUPON',
+        couponCode: bestVoucher.code,
+        candidateCodes: qualifyingVouchers.map(v => v.code),
+        originalPrice: basePrice,
+        discountedPrice: basePrice, // Zero price deduction without live cart test
+        savingsAmount: 0,
+        currency,
+        transparencyDescription: `Code ${bestVoucher.code} may apply. Try at checkout. (Public promotional code, untested in cart)`
+      };
     }
 
     // ========================================================================

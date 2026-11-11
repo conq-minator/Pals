@@ -1,11 +1,13 @@
 import { MerchantListing, ARBResearchPayload } from '../../shared/types/index.js';
 import { IMerchantProvider } from './base_provider.js';
 import { ARBTrustScorer } from '../scoring/trust_scorer.js';
-import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 import { ARBCurrencyConverter } from '../currency/forex_converter.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBWebCrawler } from './web_crawler.js';
+import { ARBEverydayCatalog } from './everyday_catalog.js';
+import { ARBCanonicalIdentity } from '../extractors/canonical_product.js';
+import { ARBLandedCostCalculator } from '../pricing/landed_cost.js';
 
 export interface DynamicMerchantStore {
   providerId: string;
@@ -71,20 +73,31 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
    * Main Autonomous Research & Arbitration execution.
    */
   public async search(payload: ARBResearchPayload): Promise<MerchantListing[]> {
-    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, targetMerchants, minMerchantTrustScore } = payload;
-    
+    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, minMerchantTrustScore } = payload;
+    const rawTargets = mandatorySpecifications?.['target_merchants'];
+    const targetMerchants: string[] = typeof rawTargets === 'string'
+      ? rawTargets.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
+    const rawExcluded = mandatorySpecifications?.['excluded_merchants'];
+    const excludedMerchants: string[] = typeof rawExcluded === 'string'
+      ? rawExcluded.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
+    const quantity = Math.max(1, payload.quantity ?? 1);
+
     // 1. Ensure live forex rates are available
     await ARBCurrencyConverter.refreshRates();
 
     const results: MerchantListing[] = [];
-    const seenTitles = new Set<string>();
+    const seenKeys = new Set<string>();
 
     // 2. Run autonomous live web crawler in background (with 2000ms timeout)
     try {
       const liveListings = await ARBWebCrawler.crawl(payload, 2000);
       for (const item of liveListings) {
-        if (!seenTitles.has(item.productTitle.toLowerCase())) {
-          seenTitles.add(item.productTitle.toLowerCase());
+        const identity = ARBCanonicalIdentity.extractIdentity(item.productTitle, undefined, undefined, item.productUrl);
+        const dedupeKey = `${item.merchantDomain}:${identity.canonicalKey}`;
+        if (!seenKeys.has(dedupeKey)) {
+          seenKeys.add(dedupeKey);
           results.push(item);
         }
       }
@@ -108,43 +121,79 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
       const intent = ARBQueryMatcher.matchesIntent(productQuery, item.title, item.brand);
       if (!intent.matches) continue;
 
+      // Targeted merchant check (e.g. "pizza from dominos", "milk on blinkit")
+      if (targetMerchants.length > 0 && !targetMerchants.some(t => item.domain.toLowerCase().includes(t))) continue;
+
+      // Merchant exclusion check (e.g. follow-up "skip swiggy")
+      if (excludedMerchants.some(x => item.domain.toLowerCase().includes(x) || item.merchantName.toLowerCase().includes(x))) continue;
+
       // Brand exclusion check
       if (excludedBrands && excludedBrands.some(eb => eb.toLowerCase() === item.brand.toLowerCase())) {
         continue;
       }
 
-      // Currency conversion via live forex
-      const convertedBase = ARBCurrencyConverter.convert(item.basePrice, item.nativeCurrency, targetCurrency);
-      const convertedShipping = ARBCurrencyConverter.convert(item.shipping, item.nativeCurrency, targetCurrency);
-      const convertedTax = ARBCurrencyConverter.convert(item.tax, item.nativeCurrency, targetCurrency);
+      // Currency conversion via live forex. Item price and per-unit tax scale with the
+      // requested quantity; delivery is charged once per order.
+      const convertedBase = ARBCurrencyConverter.convert(item.basePrice * quantity, item.nativeCurrency, targetCurrency);
+      let convertedShipping = ARBCurrencyConverter.convert(item.shipping, item.nativeCurrency, targetCurrency);
+      let convertedTax = ARBCurrencyConverter.convert(item.tax * quantity, item.nativeCurrency, targetCurrency);
+      const crossBorder = item.nativeCurrency !== targetCurrency;
 
-      // Deal Arbitration (Price Match / Concessions / Promo Vouchers)
-      const deal = ARBDealArbitrator.arbitrateDeal(item.domain, convertedBase, targetCurrency);
-      const effectivePrice = deal.discountedPrice;
-      const totalLandedCost = effectivePrice + convertedShipping + convertedTax;
+      // Authentic landed cost calculation & pincode verification
+      const landedCalc = ARBLandedCostCalculator.calculate({
+        merchantDomain: item.domain,
+        itemPrice: convertedBase,
+        currency: targetCurrency,
+        productTitle: item.title,
+        category: payload.category,
+        deliveryPostalCode: payload.deliveryPostalCode,
+        discountAmount: 0,
+        crossBorder
+      });
 
-      // Hard budget ceiling check
-      if (totalLandedCost > budgetCeiling) continue;
+      // Filter out if merchant cannot service the requested postal code
+      if (!landedCalc.pincodeServiced) {
+        continue;
+      }
+
+      if (crossBorder) {
+        // Importing from another market always adds international shipping and import duty,
+        // whether or not the shopper supplied a postal code.
+        convertedShipping += landedCalc.shippingFee;
+        convertedTax += landedCalc.customsDuty;
+      } else if (item.shipping === 0 && item.tax === 0) {
+        // Item has no curated shipping/tax: use the merchant fee-schedule estimate
+        convertedShipping = landedCalc.shippingFee + landedCalc.platformFee + landedCalc.packagingFee;
+        convertedTax = landedCalc.taxes + landedCalc.customsDuty;
+      }
+
+      const rawLanded = convertedBase + convertedShipping + convertedTax;
+      const totalLandedCost = targetCurrency.toUpperCase() === 'INR' ? Math.round(rawLanded) : Math.round(rawLanded * 100) / 100;
+
+      // NOTE: budget and spec filtering are deliberately NOT applied here. The agent loop
+      // enforces them and needs the near-misses to suggest the closest alternatives.
 
       // Trust score evaluation
       const trust = ARBTrustScorer.evaluate(item.domain);
       if (trust.score < minMerchantTrustScore) continue;
 
-      // Spec constraints verification
-      if (mandatorySpecifications && Object.keys(mandatorySpecifications).length > 0) {
-        const normalized = ARBSpecNormalizer.normalize(item.title, item.specs);
-        const check = ARBSpecNormalizer.satisfiesConstraints(normalized, mandatorySpecifications);
-        if (!check.satisfied) continue;
+      // Canonical product identity deduplication (preserves distinct variants like CL30 vs CL36)
+      const identity = ARBCanonicalIdentity.extractIdentity(item.title, item.brand, item.specs, item.url);
+      const dedupeKey = `${item.domain}:${identity.canonicalKey}`;
+      if (seenKeys.has(dedupeKey)) continue;
+      seenKeys.add(dedupeKey);
+
+      const pros = [...item.pros];
+      if (landedCalc.pincodeNote) {
+        pros.push(landedCalc.pincodeNote);
       }
-
-      const dedupeKey = `${item.domain}:${item.title.toLowerCase().slice(0, 30)}`;
-      if (seenTitles.has(dedupeKey)) continue;
-      seenTitles.add(dedupeKey);
-
-      const pros = deal.successful ? [...item.pros, deal.transparencyDescription] : [...item.pros];
       const cons = [...item.cons];
-      if (item.nativeCurrency !== targetCurrency) {
-        cons.push(`Forex converted from ${item.basePrice.toLocaleString()} ${item.nativeCurrency} at live exchange rate`);
+      if (quantity > 1) {
+        pros.unshift(`Price shown is for ${quantity} units`);
+      }
+      if (crossBorder) {
+        cons.push(`Forex converted from ${(item.basePrice * quantity).toLocaleString()} ${item.nativeCurrency} at live exchange rate`);
+        cons.push(`Cross-border purchase: includes estimated international shipping (${landedCalc.shippingFee.toLocaleString()} ${targetCurrency}) and import duty (${landedCalc.customsDuty.toLocaleString()} ${targetCurrency})`);
       }
 
       results.push({
@@ -154,7 +203,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
         productTitle: item.title,
         productUrl: item.url,
         sku: item.sku,
-        itemPrice: effectivePrice,
+        itemPrice: convertedBase,
         estimatedShipping: convertedShipping,
         estimatedTax: convertedTax,
         totalLandedCost,
@@ -200,6 +249,37 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
   }> {
     const qLower = query.toLowerCase().trim();
     const items: any[] = [];
+
+    // =========================================================================
+    // CATEGORY 00: Everyday catalog (food delivery, quick-commerce groceries,
+    // pharmacy / first aid, PC memory). Checked first so that e.g. "ddr5 ram"
+    // is not routed to laptops and "butter naan" is not routed to dairy.
+    // =========================================================================
+    const everyday = ARBEverydayCatalog.resolve(query, targetCurrency);
+    if (everyday.length > 0) {
+      for (const o of everyday) {
+        const isFood = o.entry.vertical === 'food_delivery' || o.entry.vertical === 'quick_commerce';
+        items.push({
+          providerId: `mch_${o.domain.replace(/[^a-z0-9]/g, '_')}`,
+          merchantName: o.merchantName,
+          domain: o.domain,
+          brand: o.brand,
+          title: o.title,
+          basePrice: o.price,
+          shipping: o.fee,
+          tax: o.tax,
+          nativeCurrency: o.currency,
+          url: o.url,
+          inStock: true,
+          warrantyMonths: o.entry.warrantyMonths ?? 0,
+          specs: { ...o.entry.specs, eta: o.eta },
+          pros: [`${isFood ? 'Delivery ETA' : 'Estimated delivery'}: ${o.eta}`, ...o.entry.pros],
+          cons: [...(o.entry.cons || []), 'Indicative reference price — final price confirmed on the merchant page at checkout'],
+          sku: `${o.domain.split('.')[0].toUpperCase()}-${o.entry.id.toUpperCase()}-${Math.abs(o.title.split('').reduce((a, c) => (a << 5) - a + c.charCodeAt(0), 0)).toString(36).slice(0, 6).toUpperCase()}`
+        });
+      }
+      return items;
+    }
 
     // =========================================================================
     // CATEGORY 0A: Food Delivery & Biryani (Swiggy, Zomato, EatClub/Behrouz, Blinkit, DoorDash)
@@ -320,95 +400,6 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     }
 
     // =========================================================================
-    // CATEGORY 0B: Instant 10-Minute Grocery Delivery (Milk, Bread, Eggs, Butter)
-    // =========================================================================
-    const isInstantDairyBakery = [
-      'milk', 'bread', 'eggs', 'curd', 'paneer', 'butter', 'instant delivery', 'amul'
-    ].some(w => qLower.includes(w));
-
-    if (isInstantDairyBakery) {
-      const instantStores = [
-        {
-          domain: 'blinkit.com',
-          name: 'Blinkit (10-Min Flash Delivery)',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1 Litre Tetra Pack) - 10 Min Delivery',
-          price: 72,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://blinkit.com/prn/amul-taaza-toned-milk/prid/38219',
-          eta: '10 Mins'
-        },
-        {
-          domain: 'zeptonow.com',
-          name: 'Zepto Instant Grocery',
-          brand: 'Amul',
-          title: 'Amul Taaza Toned Fresh Milk (1L Tetra) - 8 Min Instant Drop',
-          price: 72,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://www.zeptonow.com/pn/amul-taaza-toned-fresh-milk-1-l/pvid/18293',
-          eta: '8 Mins'
-        },
-        {
-          domain: 'swiggy.com',
-          name: 'Swiggy Instamart (12-Min Delivery)',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1000ml)',
-          price: 72,
-          ship: 16,
-          curr: 'INR' as const,
-          url: 'https://www.swiggy.com/instamart/item/amul-taaza-toned-milk',
-          eta: '12 Mins'
-        },
-        {
-          domain: 'bigbasket.com',
-          name: 'BigBasket (bbnow Instant)',
-          brand: 'Fresho / Amul',
-          title: 'Amul Taaza Toned Milk (1L Pouch / Tetra)',
-          price: 70,
-          ship: 15,
-          curr: 'INR' as const,
-          url: 'https://www.bigbasket.com/pd/40049258/amul-taaza-fresh-toned-milk-1-l/',
-          eta: '15 Mins'
-        },
-        {
-          domain: 'jiomart.com',
-          name: 'JioMart Quick Delivery',
-          brand: 'Amul',
-          title: 'Amul Taaza Homogenised Toned Milk (1 L Tetra Pack)',
-          price: 68,
-          ship: 25,
-          curr: 'INR' as const,
-          url: 'https://www.jiomart.com/p/groceries/amul-taaza-homogenised-toned-milk-1-l/490001392',
-          eta: 'Same Day'
-        }
-      ];
-
-      for (const st of instantStores) {
-        items.push({
-          providerId: `mch_${st.domain.replace(/[^a-z0-9]/g, '_')}`,
-          merchantName: st.name,
-          domain: st.domain,
-          brand: st.brand,
-          title: st.title,
-          basePrice: st.price,
-          shipping: st.ship,
-          tax: 0,
-          nativeCurrency: st.curr,
-          url: st.url,
-          inStock: true,
-          warrantyMonths: 0,
-          specs: { eta: st.eta, type: 'Daily Fresh Dairy' },
-          pros: [`Ultra-fast doorstep ETA: ${st.eta}`, 'Cold-chain guaranteed freshness', 'Instant contactless delivery'],
-          cons: [],
-          sku: `${st.domain.split('.')[0].toUpperCase()}-DAIRY-AMUL`
-        });
-      }
-      return items;
-    }
-
-    // =========================================================================
     // CATEGORY 1: Groceries, Health, Seeds & Superfoods (e.g. "CHIA SEEDS", "Oats", "Whey Protein")
     // =========================================================================
     const isGrocery = [
@@ -456,18 +447,15 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     // CATEGORY 2: Apple Mac Mini (All generations & configurations)
     // =========================================================================
     if (qLower.includes('mac') && qLower.includes('mini')) {
-      const isM4 = qLower.includes('m4') || (!qLower.includes('m2') && !qLower.includes('m1'));
-      const ramReq = mandatorySpecs?.['ram_gb'] || 16;
-
       const macMiniM4Stores = [
         { domain: 'apple.com', name: 'Apple Store Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.apple.com/in/shop/buy-mac/mac-mini' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 58990, ship: 0, url: 'https://www.amazon.in/dp/B0DEXAMPLE_MACMINI' },
-        { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.flipkart.com/apple-mac-mini-m4/p/itma0150' },
-        { domain: 'croma.com', name: 'Croma Electronics', curr: 'INR' as const, price: 59490, ship: 0, url: 'https://www.croma.com/p/apple-mac-mini-m4' },
-        { domain: 'reliancedigital.in', name: 'Reliance Digital', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.reliancedigital.in/item/mac-mini-m4' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, price: 58990, ship: 0, url: 'https://www.amazon.in/s?k=Apple+Mac+mini+M4+16GB' },
+        { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.flipkart.com/search?q=Apple+Mac+mini+M4' },
+        { domain: 'croma.com', name: 'Croma Electronics', curr: 'INR' as const, price: 59490, ship: 0, url: 'https://www.croma.com/search/?text=Apple+Mac+mini+M4' },
+        { domain: 'reliancedigital.in', name: 'Reliance Digital', curr: 'INR' as const, price: 59900, ship: 0, url: 'https://www.reliancedigital.in/search?q=Apple+Mac+mini+M4' },
         { domain: 'bhphotovideo.com', name: 'B&H Photo Video', curr: 'USD' as const, price: 579, ship: 0, url: 'https://www.bhphotovideo.com/c/search?Ntt=mac+mini+m4' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 599, ship: 0, url: 'https://www.bestbuy.com/site/apple-mac-mini-m4/6591024.p' },
-        { domain: 'microcenter.com', name: 'Micro Center', curr: 'USD' as const, price: 549, ship: 0, url: 'https://www.microcenter.com/product/mac-mini-m4' }
+        { domain: 'bestbuy.com', name: 'Best Buy Official', curr: 'USD' as const, price: 599, ship: 0, url: 'https://www.bestbuy.com/site/searchpage.jsp?st=apple+mac+mini+m4' },
+        { domain: 'microcenter.com', name: 'Micro Center', curr: 'USD' as const, price: 549, ship: 0, url: 'https://www.microcenter.com/search/search_results.aspx?Ntt=mac+mini+m4' }
       ];
 
       for (const st of macMiniM4Stores) {
@@ -476,7 +464,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           merchantName: st.name,
           domain: st.domain,
           brand: 'Apple',
-          title: `Apple Mac mini Desktop Computer (M4 Chip, ${ramReq}GB Unified Memory, 256GB SSD, Silver)`,
+          title: 'Apple Mac mini Desktop Computer (M4 Chip, 16GB Unified Memory, 256GB SSD, Silver)',
           basePrice: st.price,
           shipping: st.ship,
           tax: 0,
@@ -484,7 +472,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           url: st.url,
           inStock: true,
           warrantyMonths: 12,
-          specs: { ram: `${ramReq}GB Unified`, storage: '256GB SSD', processor: 'Apple M4 10-core CPU', gpu: 'Apple 10-core GPU' },
+          specs: { ram: '16GB Unified', storage: '256GB SSD', processor: 'Apple M4 10-core CPU', gpu: 'Apple 10-core GPU' },
           pros: ['Redesigned 5x5 inch ultra-compact chassis', 'Front-facing USB-C & headphone jack', 'Industry-leading energy efficiency'],
           cons: ['Monitor, keyboard and mouse sold separately'],
           sku: `${st.domain.split('.')[0].toUpperCase()}-APL-MACMINI-M4`
@@ -572,19 +560,16 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     ].some(w => qLower.includes(w));
 
     if (isLaptop) {
-      const ramTarget = mandatorySpecs?.['ram_gb'] || 16;
-      const gpuTarget = mandatorySpecs?.['gpu'] || (qLower.includes('gaming') ? 'RTX 4050' : 'Integrated');
-
       const laptopFleet = [
-        { domain: 'flipkart.com', name: 'Flipkart Official', brand: 'MSI', title: `MSI Thin 15 (${ramTarget}GB RAM, 512GB SSD, RTX 3050, 144Hz FHD)`, price: 51990, ship: 99, curr: 'INR' as const, url: 'https://flipkart.com/item/FLPMSITHIN1', gpu: 'RTX 3050 4GB', display: '15.6" 144Hz FHD' },
-        { domain: 'croma.com', name: 'Croma Electronics', brand: 'HP', title: `HP Victus 15 (${ramTarget}GB DDR5, 512GB Gen4 SSD, AMD Ryzen 5 7535HS, RTX 2050)`, price: 54990, ship: 0, curr: 'INR' as const, url: 'https://croma.com/p/304118', gpu: 'RTX 2050 4GB', display: '15.6" 144Hz FHD' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Asus', title: `ASUS Vivobook 16X (${ramTarget}GB RAM, 512GB NVMe SSD, RTX 3050, 16" WUXGA 120Hz)`, price: 58990, ship: 0, curr: 'INR' as const, url: 'https://amazon.in/dp/B0DEXAMPLE3', gpu: 'RTX 3050 4GB', display: '16" 120Hz WUXGA' },
-        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Acer', title: `Acer Nitro V 15 (${ramTarget}GB DDR5, 512GB SSD, Intel Core i5-13420H, RTX 4050 6GB, 144Hz)`, price: 68990, ship: 0, curr: 'INR' as const, url: 'https://reliancedigital.in/item/493821', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD IPS' },
-        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Lenovo', title: `Lenovo LOQ 15 Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, 144Hz FHD)`, price: 69990, ship: 0, curr: 'INR' as const, url: 'https://amazon.in/dp/B0CXEXAMPLE1', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD' },
-        { domain: 'dell.com', name: 'Dell Official Store', brand: 'Dell', title: `Dell G15 Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, 120Hz FHD)`, price: 72990, ship: 0, curr: 'INR' as const, url: 'https://www.dell.com/en-in/shop/gaming-laptops/g15-gaming-laptop', gpu: 'RTX 4050 6GB', display: '15.6" 120Hz FHD' },
-        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Asus', title: `ASUS TUF Gaming A15 15.6" FHD 144Hz (${ramTarget}GB DDR5, 512GB SSD, RTX 4050, Ryzen 5 7535HS)`, price: 799, ship: 0, curr: 'USD' as const, url: 'https://bestbuy.com/site/asus-tuf-gaming-a15/6570270.p', gpu: 'RTX 4050 6GB', display: '15.6" 144Hz FHD' },
-        { domain: 'walmart.com', name: 'Walmart US', brand: 'HP', title: `HP Pavilion Plus 14 Laptop (${ramTarget}GB LPDDR5x, 512GB SSD, Intel Core Ultra 5 125H, 2.8K OLED)`, price: 749, ship: 0, curr: 'USD' as const, url: 'https://walmart.com/ip/HP-Pavilion-Plus-14/198231', gpu: 'Intel Arc Graphics', display: '14" 2.8K OLED' },
-        { domain: 'walmart.com', name: 'Walmart US', brand: 'Lenovo', title: `Lenovo Legion 5 15.6" Gaming Laptop (${ramTarget}GB DDR5, 512GB SSD, RTX 4060, AMD Ryzen 7 7735HS)`, price: 899, ship: 0, curr: 'USD' as const, url: 'https://walmart.com/ip/Lenovo-Legion-5-Gaming/291823', gpu: 'RTX 4060 8GB', display: '15.6" 165Hz FHD' }
+        { domain: 'flipkart.com', name: 'Flipkart Official', brand: 'MSI', title: 'MSI Thin 15 (16GB RAM, 512GB SSD, RTX 3050, 144Hz FHD)', price: 51990, ship: 99, curr: 'INR' as const, url: 'https://www.flipkart.com/search?q=MSI+Thin+15+RTX+3050', gpu: 'RTX 3050 4GB', ram: '16GB DDR4', display: '15.6" 144Hz FHD' },
+        { domain: 'croma.com', name: 'Croma Electronics', brand: 'HP', title: 'HP Victus 15 (16GB DDR5, 512GB Gen4 SSD, AMD Ryzen 5 7535HS, RTX 2050)', price: 54990, ship: 0, curr: 'INR' as const, url: 'https://www.croma.com/search/?text=HP+Victus+15+Ryzen+5', gpu: 'RTX 2050 4GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Asus', title: 'ASUS Vivobook 16X (16GB RAM, 512GB NVMe SSD, RTX 3050, 16" WUXGA 120Hz)', price: 58990, ship: 0, curr: 'INR' as const, url: 'https://www.amazon.in/s?k=ASUS+Vivobook+16X+RTX+3050', gpu: 'RTX 3050 4GB', ram: '16GB DDR4', display: '16" 120Hz WUXGA' },
+        { domain: 'reliancedigital.in', name: 'Reliance Digital', brand: 'Acer', title: 'Acer Nitro V 15 (16GB DDR5, 512GB SSD, Intel Core i5-13420H, RTX 4050 6GB, 144Hz)', price: 68990, ship: 0, curr: 'INR' as const, url: 'https://www.reliancedigital.in/search?q=Acer+Nitro+V+15', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD IPS' },
+        { domain: 'amazon.in', name: 'Amazon India (Official)', brand: 'Lenovo', title: 'Lenovo LOQ 15 Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4050, 144Hz FHD)', price: 69990, ship: 0, curr: 'INR' as const, url: 'https://www.amazon.in/s?k=Lenovo+LOQ+15+RTX+4050', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'dell.com', name: 'Dell Official Store', brand: 'Dell', title: 'Dell G15 Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4050, 120Hz FHD)', price: 72990, ship: 0, curr: 'INR' as const, url: 'https://www.dell.com/en-in/shop/gaming-laptops/g15-gaming-laptop', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 120Hz FHD' },
+        { domain: 'bestbuy.com', name: 'Best Buy Official', brand: 'Asus', title: 'ASUS TUF Gaming A15 15.6" FHD 144Hz (16GB DDR5, 512GB SSD, RTX 4050, Ryzen 5 7535HS)', price: 799, ship: 0, curr: 'USD' as const, url: 'https://www.bestbuy.com/site/searchpage.jsp?st=asus+tuf+gaming+a15', gpu: 'RTX 4050 6GB', ram: '16GB DDR5', display: '15.6" 144Hz FHD' },
+        { domain: 'walmart.com', name: 'Walmart US', brand: 'HP', title: 'HP Pavilion Plus 14 Laptop (16GB LPDDR5x, 512GB SSD, Intel Core Ultra 5 125H, 2.8K OLED)', price: 749, ship: 0, curr: 'USD' as const, url: 'https://www.walmart.com/search?q=HP+Pavilion+Plus+14', gpu: 'Intel Arc Graphics', ram: '16GB LPDDR5x', display: '14" 2.8K OLED' },
+        { domain: 'walmart.com', name: 'Walmart US', brand: 'Lenovo', title: 'Lenovo Legion 5 15.6" Gaming Laptop (16GB DDR5, 512GB SSD, RTX 4060, AMD Ryzen 7 7735HS)', price: 899, ship: 0, curr: 'USD' as const, url: 'https://www.walmart.com/search?q=Lenovo+Legion+5', gpu: 'RTX 4060 8GB', ram: '16GB DDR5', display: '15.6" 165Hz FHD' }
       ];
 
       for (const lap of laptopFleet) {
@@ -601,7 +586,7 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
           url: lap.url,
           inStock: true,
           warrantyMonths: 12,
-          specs: { ram: `${ramTarget}GB DDR5`, gpu: lap.gpu, display: lap.display },
+          specs: { ram: lap.ram, gpu: lap.gpu, display: lap.display },
           pros: ['High performance modern processor architecture', 'Official manufacturer warranty'],
           cons: [],
           sku: `${lap.domain.split('.')[0].toUpperCase()}-${lap.brand.toUpperCase()}-${Math.abs(lap.title.length * 31).toString(36).toUpperCase()}`
@@ -611,57 +596,10 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     }
 
     // =========================================================================
-    // CATEGORY 6: UNIVERSAL OPEN-DOMAIN SHOPPING SYNTHESIZER
-    // For ANY other query in the world (e.g. Shoes, Air Fryer, Camera, Books, Furniture, etc.)
+    // No verified catalog coverage for this query. ARB deliberately returns
+    // nothing rather than fabricating listings with invented prices; the
+    // service report links the shopper to merchant search pages instead.
     // =========================================================================
-    const coreCleanTokens = ARBQueryMatcher.extractCoreTokens(query);
-    const capitalizedName = coreCleanTokens.length > 0 
-      ? coreCleanTokens.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(' ')
-      : query;
-
-    // Estimate realistic baseline pricing based on user budget ceiling or typical retail scale
-    let estimatedBaseInr = Math.min(Math.max(budgetCeiling * 0.45, 1200), 45000);
-    if (budgetCeiling > 150000) {
-      estimatedBaseInr = 2499; // Standard consumer goods default
-    }
-
-    const universalStores = [
-      { domain: 'amazon.in', name: 'Amazon India (Official)', curr: 'INR' as const, mult: 1.0, prefix: 'Amazon Choice: ' },
-      { domain: 'flipkart.com', name: 'Flipkart Official', curr: 'INR' as const, mult: 0.96, prefix: 'Assured Quality: ' },
-      { domain: 'walmart.com', name: 'Walmart US', curr: 'USD' as const, mult: 1.05, prefix: 'Great Value: ' },
-      { domain: 'target.com', name: 'Target US', curr: 'USD' as const, mult: 1.02, prefix: 'Popular Pick: ' },
-      { domain: 'jiomart.com', name: 'JioMart (Reliance Retail)', curr: 'INR' as const, mult: 0.94, prefix: 'Smart Bazaar: ' }
-    ];
-
-    for (const st of universalStores) {
-      const priceInStoreCurrency = st.curr === 'USD' 
-        ? Math.round((estimatedBaseInr / 87.5) * st.mult * 100) / 100 
-        : Math.round(estimatedBaseInr * st.mult);
-
-      const storeSearchUrl = st.curr === 'USD'
-        ? `https://www.${st.domain}/search?q=${encodeURIComponent(query)}`
-        : `https://www.${st.domain}/search?q=${encodeURIComponent(query)}`;
-
-      items.push({
-        providerId: `mch_${st.domain.replace(/[^a-z0-9]/g, '_')}`,
-        merchantName: st.name,
-        domain: st.domain,
-        brand: 'Verified Brand',
-        title: `${st.prefix}${capitalizedName} (Authentic Retail Edition)`,
-        basePrice: priceInStoreCurrency,
-        shipping: 0,
-        tax: 0,
-        nativeCurrency: st.curr,
-        url: storeSearchUrl,
-        inStock: true,
-        warrantyMonths: 6,
-        specs: { category: 'Consumer Retail', condition: 'Brand New In Box' },
-        pros: ['Verified authentic manufacturer supply chain', 'Eligible for fast standard home delivery', 'Covered by standard return and refund policy'],
-        cons: [],
-        sku: `${st.domain.split('.')[0].toUpperCase()}-GEN-${Math.abs(capitalizedName.length * 37).toString(36).toUpperCase()}`
-      });
-    }
-
     return items;
   }
 }

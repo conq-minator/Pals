@@ -2,7 +2,7 @@ import * as http from 'node:http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ArbService, ARBQueryExtractor } from '../index.js';
+import { ArbService, ARBQueryExtractor, ARBProgressEmitter } from '../index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,7 +39,32 @@ const server = http.createServer(async (req: any, res: any) => {
     }
   }
 
-  // 2. API: Search & Arbitrate
+  // 2. Server-Sent Events (SSE): Real-time progress updates per task
+  const progressMatch = url.pathname.match(/^\/api\/progress\/([^/]+)$/);
+  if (req.method === 'GET' && progressMatch) {
+    const targetTaskId = progressMatch[1];
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    });
+
+    const listener = (payload: any) => {
+      if (payload.taskId === targetTaskId) {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      }
+    };
+
+    const emitter = ARBProgressEmitter.getInstance();
+    emitter.addListener(listener);
+
+    req.on('close', () => {
+      emitter.removeListener(listener);
+    });
+    return;
+  }
+
+  // 3. API: Search & Arbitrate
   if (req.method === 'POST' && url.pathname === '/api/search') {
     let body = '';
     req.on('data', (chunk: any) => { body += chunk; });
@@ -60,6 +85,7 @@ const server = http.createServer(async (req: any, res: any) => {
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
+          taskId: correlationId,
           extracted,
           result
         }));
@@ -72,7 +98,36 @@ const server = http.createServer(async (req: any, res: any) => {
     return;
   }
 
-  // 3. API: Prepare Purchase Proposal
+  // 4. API: Refine Existing Task
+  if (req.method === 'POST' && url.pathname === '/api/refine') {
+    let body = '';
+    req.on('data', (chunk: any) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { taskId, prompt, refinementPrompt } = JSON.parse(body || '{}');
+        const text = prompt || refinementPrompt;
+        if (!taskId || !text) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'taskId and prompt are required for refinement' }));
+          return;
+        }
+
+        const result = await arb.refineResearch(taskId, text);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          taskId,
+          result
+        }));
+      } catch (err: unknown) {
+        console.error('[ARB Server Error /api/refine]:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+    });
+    return;
+  }
+
+  // 5. API: Prepare Purchase Proposal
   if (req.method === 'POST' && url.pathname === '/api/propose') {
     let body = '';
     req.on('data', (chunk: any) => { body += chunk; });

@@ -1,15 +1,21 @@
 import { MerchantListing, ARBResearchPayload } from '../../shared/types/index.js';
 import { ARBCurrencyConverter } from '../currency/forex_converter.js';
 import { ARBTrustScorer } from '../scoring/trust_scorer.js';
-import { ARBDealArbitrator } from '../negotiation/deal_arbitrator.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
+import { ARBProductVerifier } from './product_verifier.js';
+import { ARBCanonicalIdentity } from '../extractors/canonical_product.js';
+import { ARBLandedCostCalculator } from '../pricing/landed_cost.js';
 
 /**
  * ARBWebCrawler
- * Autonomous live e-commerce search crawler.
- * Searches across multi-merchant endpoints on the public web, extracts real product URLs,
- * parses native prices, converts currencies accurately via forex, and normalizes specifications.
+ * Two-stage autonomous live e-commerce search crawler & product verifier.
+ *
+ * Stage 1 (Discover): Searches multi-merchant indexes for candidate product URLs.
+ * Stage 2 (Verify): Inspects candidate product pages, extracts authentic schema.org
+ * JSON-LD / OpenGraph data, filters false EMI rates, computes real landed costs
+ * (including shipping thresholds, packaging, platform fees, and pincode rules),
+ * and assigns canonical product identities.
  */
 export class ARBWebCrawler {
   private static readonly USER_AGENTS = [
@@ -18,10 +24,23 @@ export class ARBWebCrawler {
   ];
 
   /**
-   * Executes live crawl across target merchants for the user query.
+   * Executes two-stage live crawl & verification across target merchants.
    */
   public static async crawl(payload: ARBResearchPayload, timeoutMs: number = 3000): Promise<MerchantListing[]> {
-    const { productQuery, currency: targetCurrency, budgetCeiling, excludedBrands, mandatorySpecifications, targetMerchants } = payload;
+    const {
+      productQuery,
+      currency: targetCurrency,
+      budgetCeiling,
+      excludedBrands,
+      mandatorySpecifications,
+      deliveryPostalCode,
+      category
+    } = payload;
+
+    const rawTargets = mandatorySpecifications?.['target_merchants'];
+    const targetMerchants: string[] = typeof rawTargets === 'string'
+      ? rawTargets.split(',').map(t => t.trim().toLowerCase()).filter(Boolean)
+      : [];
     
     // Refresh forex exchange rates in background
     await ARBCurrencyConverter.refreshRates();
@@ -29,7 +48,7 @@ export class ARBWebCrawler {
     const cleanQuery = productQuery.replace(/[^\w\s-]/g, ' ').replace(/\s+/g, ' ').trim();
     if (!cleanQuery) return [];
 
-    // Construct targeted search queries across verified merchants
+    // Stage 1: Candidate Discovery tasks across verified merchant domains
     const searchTasks: Array<{ query: string; region: 'IN' | 'US' }> = [
       {
         query: `${cleanQuery} price site:flipkart.com OR site:amazon.in OR site:croma.com OR site:reliancedigital.in`,
@@ -70,12 +89,12 @@ export class ARBWebCrawler {
         if (!res.ok) return;
         const html = await res.text();
 
-        // Split HTML by result item blocks
+        // Split HTML by candidate result item blocks
         const blocks = html.split('<div class="result results_links results_links_deep web-result');
         for (let i = 1; i < blocks.length; i++) {
           const block = blocks[i];
 
-          // 1. Extract Title & Raw Link
+          // 1. Extract Candidate Title & Direct Link
           const titleMatch = block.match(/<h2 class="result__title">[\s\S]*?<a rel="nofollow" class="result__a" href="([^"]+)">([\s\S]*?)<\/a>/);
           if (!titleMatch) continue;
 
@@ -91,8 +110,6 @@ export class ARBWebCrawler {
           seenUrls.add(directUrl);
 
           const rawTitle = titleMatch[2].replace(/<[^>]+>/g, '').trim();
-
-          // Clean title (remove trailing "- Amazon.in", " - Flipkart", etc.)
           const cleanTitle = rawTitle
             .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
             .trim();
@@ -109,13 +126,12 @@ export class ARBWebCrawler {
             continue;
           }
 
-          // Skip if targetMerchants specified and domain doesn't match
+          // Filter by target merchants if requested
           if (targetMerchants && targetMerchants.length > 0) {
             const matchesTarget = targetMerchants.some(tm => domain.toLowerCase().includes(tm.toLowerCase()));
             if (!matchesTarget) continue;
           }
 
-          // Merchant details & Native Currency
           const nativeCurrency = ARBCurrencyConverter.detectMerchantNativeCurrency(domain);
           let merchantName = domain;
           if (domain.includes('amazon.in')) merchantName = 'Amazon India (Official)';
@@ -125,92 +141,139 @@ export class ARBWebCrawler {
           else if (domain.includes('walmart.com')) merchantName = 'Walmart US';
           else if (domain.includes('bestbuy.com')) merchantName = 'Best Buy US';
 
-          // 4. Extract Price
-          const combinedText = `${rawTitle} ${snippet}`;
-          let nativePrice = 0;
+          // =================================================================
+          // STAGE 2: Product Page Verification (JSON-LD & OpenGraph)
+          // =================================================================
+          let verifiedPage = await ARBProductVerifier.fetchAndVerify(
+            directUrl,
+            Math.min(timeoutMs, 2500),
+            category
+          );
 
-          if (nativeCurrency === 'USD') {
-            const usdMatch = combinedText.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
-            if (usdMatch) {
-              nativePrice = parseFloat(usdMatch[1].replace(/,/g, ''));
-            }
+          let finalTitle = cleanTitle;
+          let nativePrice = 0;
+          let inStock = true;
+          let isVerified = false;
+
+          if (verifiedPage && verifiedPage.price > 0) {
+            finalTitle = verifiedPage.title || cleanTitle;
+            nativePrice = verifiedPage.price;
+            inStock = verifiedPage.inStock;
+            if (verifiedPage.seller) merchantName = `${verifiedPage.seller} (via ${domain})`;
+            isVerified = true;
           } else {
-            const inrMatch = combinedText.match(/(?:rs\.?|₹|inr)\s*([0-9,]+)/i);
-            if (inrMatch) {
-              nativePrice = parseFloat(inrMatch[1].replace(/,/g, ''));
+            // Fallback: snippet extraction with strict anti-EMI filtering
+            const combinedText = `${rawTitle} ${snippet}`;
+
+            // Reject if snippet text is explicitly an EMI quote
+            const looksLikeEmiQuote = /emi from|emi starts|no cost emi|\/month|per month/i.test(combinedText) && !combinedText.includes('full price');
+
+            if (looksLikeEmiQuote) {
+              // An unverified snippet that quotes a monthly instalment cannot be trusted as the item price.
+              nativePrice = 0;
+            } else if (nativeCurrency === 'USD') {
+              const usdMatch = combinedText.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
+              if (usdMatch) {
+                nativePrice = parseFloat(usdMatch[1].replace(/,/g, ''));
+              }
+            } else {
+              const inrMatch = combinedText.match(/(?:rs\.?|₹|inr)\s*([0-9,]+)/i);
+              if (inrMatch) {
+                nativePrice = parseFloat(inrMatch[1].replace(/,/g, ''));
+              }
             }
           }
 
-          // Skip if no credible price could be extracted
+          // Discard if no credible price could be resolved
           if (nativePrice <= 0) continue;
 
-          // 5. Query relevance validation (Prevent returning laptops for Mac Mini!)
-          const intent = ARBQueryMatcher.matchesIntent(productQuery, cleanTitle);
-          if (!intent.matches) {
-            continue;
-          }
+          // 4. Query Intent Validation
+          const intent = ARBQueryMatcher.matchesIntent(productQuery, finalTitle);
+          if (!intent.matches) continue;
 
-          // 6. Currency Conversion
-          // Convert from merchant's native currency to user requested target currency
-          const convertedPrice = ARBCurrencyConverter.convert(nativePrice, nativeCurrency, targetCurrency);
+          // 5. Currency Conversion
+          const quantity = Math.max(1, payload.quantity ?? 1);
+          const convertedPrice = ARBCurrencyConverter.convert(nativePrice * quantity, nativeCurrency, targetCurrency);
 
-          // 7. Shipping & Tax Estimates
-          const shipping = 0; // Verified stores usually offer free shipping for high-value tech
-          const tax = 0;      // Taxes included in retail listing price
+          // 6. Authentic Landed Cost Calculation (Shipping thresholds, packaging, platform fees, taxes, pincode)
+          const landedCalc = ARBLandedCostCalculator.calculate({
+            merchantDomain: domain,
+            itemPrice: convertedPrice,
+            currency: targetCurrency,
+            productTitle: finalTitle,
+            category,
+            deliveryPostalCode,
+            discountAmount: 0,
+            crossBorder: nativeCurrency !== targetCurrency
+          });
 
-          // 8. Deal Arbitration (Concessions & Vouchers)
-          const deal = ARBDealArbitrator.arbitrateDeal(domain, convertedPrice, targetCurrency);
-          const effectiveBasePrice = deal.discountedPrice;
-          const totalLandedCost = effectiveBasePrice + shipping + tax;
+          // Discard if postal code is incompatible/unserviced
+          if (!landedCalc.pincodeServiced) continue;
 
-          // 9. Budget Ceiling Check
-          if (totalLandedCost > budgetCeiling) {
-            continue;
-          }
+          const totalLandedCost = landedCalc.totalLandedCost;
 
-          // 10. Spec Normalization & Constraint Satisfaction
-          const normalizedSpecs = ARBSpecNormalizer.normalize(cleanTitle, { snippet });
-          if (mandatorySpecifications && Object.keys(mandatorySpecifications).length > 0) {
-            const satisfies = ARBSpecNormalizer.satisfiesConstraints(normalizedSpecs, mandatorySpecifications);
-            if (!satisfies.satisfied) {
-              continue;
-            }
-          }
+          // 8-9. Budget and spec filtering are owned by the agent loop (it needs the
+          //      near-misses to propose closest alternatives), so they are not applied here.
+          const normalizedSpecs = ARBSpecNormalizer.normalize(finalTitle, { snippet });
+
+          // 10. Canonical Product Identity
+          const canonicalIdentity = ARBCanonicalIdentity.extractIdentity(
+            finalTitle,
+            verifiedPage?.brand,
+            normalizedSpecs,
+            directUrl
+          );
 
           // 11. Trust Evaluation
           const trust = ARBTrustScorer.evaluate(domain);
 
-          // 12. SKU Generation
-          const skuPrefix = domain.split('.')[0].toUpperCase().slice(0, 3);
-          const skuHash = Math.abs(cleanTitle.split('').reduce((a, b) => (a << 5) - a + b.charCodeAt(0), 0)).toString(36).slice(0, 6);
-          const sku = `LIVE-${skuPrefix}-${skuHash.toUpperCase()}`;
+          // 12. Structured Pros & Cons with Transparency
+          const pros: string[] = isVerified
+            ? [`Verified live with merchant schema.org data on ${domain}`]
+            : [`Candidate discovered via live web crawl on ${domain}`];
+
+          if (landedCalc.shippingFee === 0) {
+            pros.push(`Free shipping expected under ${domain}'s standard policy (estimate)`);
+          }
+          if (landedCalc.pincodeNote) {
+            pros.push(landedCalc.pincodeNote);
+          }
+
+          const cons: string[] = [];
+          if (!isVerified) {
+            cons.push('Live page schema unverified; price extracted from search index snippet');
+          }
+          if (nativeCurrency !== targetCurrency) {
+            cons.push(`Forex converted from ${nativePrice} ${nativeCurrency} at live exchange rate`);
+          }
+          if (!inStock) {
+            cons.push('Item currently out of stock or backordered on merchant page');
+          }
+
+          const sku = `LIVE-${canonicalIdentity.brand.slice(0, 3).toUpperCase()}-${canonicalIdentity.variantSignature.slice(0, 10).toUpperCase()}-${Math.abs(directUrl.length * 37).toString(36).slice(0, 4).toUpperCase()}`;
 
           listings.push({
             merchantId: `mch_live_${domain.replace(/[^a-z0-9]/g, '_')}`,
             merchantName,
             merchantDomain: domain,
-            productTitle: cleanTitle,
+            productTitle: finalTitle,
             productUrl: directUrl,
             sku,
-            itemPrice: effectiveBasePrice,
-            estimatedShipping: shipping,
-            estimatedTax: tax,
+            itemPrice: convertedPrice,
+            estimatedShipping: landedCalc.shippingFee + landedCalc.platformFee + landedCalc.packagingFee,
+            estimatedTax: landedCalc.taxes + landedCalc.customsDuty,
             totalLandedCost,
             currency: targetCurrency,
-            inStock: true,
+            inStock,
             warrantyPeriodMonths: 12,
             trustScore: trust.score,
             trustReasons: trust.reasons,
-            pros: deal.successful 
-              ? [`Live web crawl verified on ${domain}`, deal.transparencyDescription]
-              : [`Live web crawl verified on ${domain}`],
-            cons: nativeCurrency !== targetCurrency 
-              ? [`Forex converted from ${nativePrice} ${nativeCurrency} at live exchange rate`]
-              : []
+            pros,
+            cons
           });
         }
-      } catch (err) {
-        // Silent catch for individual network timeouts
+      } catch {
+        // Handle network timeout or block gracefully
       }
     });
 
@@ -218,4 +281,3 @@ export class ARBWebCrawler {
     return listings;
   }
 }
-
