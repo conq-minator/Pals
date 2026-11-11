@@ -17,7 +17,10 @@ export class ARBRelevanceScorer {
     'case', 'cover', 'tempered glass', 'screen protector', 'skin',
     'pouch', 'sleeve', 'strap', 'stand', 'mount', 'cleaning kit',
     'cutter', 'maker', 'boiler', 'knife', 'frother', 'press',
-    'paper', 'dress', 'bag', 'parts'
+    'paper', 'dress', 'bag', 'parts',
+    'oven', 'stone', 'charger', 'bottle', 'toaster', 'tray', 'beater',
+    'box', 'tawa', 'cooler', 'scissors', 'dock', 'heatsink', 'dish',
+    'syrup', 'adapter', 'hub', 'backpack', 'peel', 'paddle'
   ]);
 
   private static COMPONENT_VS_SYSTEM_MAP: Record<string, { systemTokens: string[]; componentTokens: string[] }> = {
@@ -42,12 +45,14 @@ export class ARBRelevanceScorer {
 
     // 1. Accessory Guard (symmetric check):
     const queryAccessoryKeywords = Array.from(this.ACCESSORY_KEYWORDS).filter(kw => {
+      if (kw === 'oven' && queryLower.includes('oven story')) return false;
       const regex = new RegExp(`\\b${kw}\\b`, 'i');
       return regex.test(queryLower);
     });
     const queryWantsAccessory = queryAccessoryKeywords.length > 0;
 
     const listingAccessoryKeywords = Array.from(this.ACCESSORY_KEYWORDS).filter(kw => {
+      if (kw === 'oven' && titleLower.includes('oven story')) return false;
       const regex = new RegExp(`\\b${kw}\\b`, 'i');
       return regex.test(titleLower);
     });
@@ -85,7 +90,8 @@ export class ARBRelevanceScorer {
     // 2. Component vs System Confusion Guard:
     // If user asked specifically for RAM/memory modules without mentioning "laptop" or "pc",
     // reject whole computer systems that happen to have that RAM spec.
-    const isRamQuery = queryTokens.some(t => ['ram', 'ddr4', 'ddr5', 'sodimm', 'dimm'].includes(t));
+    const isRamQuery = queryTokens.some(t => ['ram', 'ddr4', 'ddr5', 'sodimm', 'dimm'].includes(t)) ||
+      (/\b(corsair|crucial|kingston|g\.?skill|xpg|teamgroup|patriot)\b/i.test(queryLower) && /\b[0-9]{1,3}\s*gb\b/i.test(queryLower));
     const userExplicitlyRequestedComputer = queryTokens.some(t => ['laptop', 'notebook', 'pc', 'macbook', 'desktop'].includes(t));
 
     if (isRamQuery && !userExplicitlyRequestedComputer) {

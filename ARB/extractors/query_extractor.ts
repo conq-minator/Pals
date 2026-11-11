@@ -116,8 +116,13 @@ export class ARBQueryExtractor {
     const isPhoneOrTablet = /\b(?:iphone|ipad|galaxy\s*s\d+|pixel\s*\d+|smartphone|mobile\s*phone|phone|handset)\b/i.test(lower);
     const everydayVertical = ARBEverydayCatalog.detectVertical(text);
 
+    const hasMemBrand = /\b(?:corsair|crucial|kingston|g\.?skill|xpg|teamgroup|patriot)\b/i.test(lower);
+    const hasMemCap = /\b[0-9]{1,3}\s*gb\b/i.test(lower);
+
     if (everydayVertical) {
       category = everydayVertical;
+    } else if (hasMemBrand && hasMemCap) {
+      category = 'pc_components';
     } else if (isPhoneOrTablet) {
       category = 'smartphones';
     } else if (lower.includes('laptop') || lower.includes('notebook') || lower.includes('macbook')) {
@@ -149,15 +154,15 @@ export class ARBQueryExtractor {
 
     if (/\b(?:strictly under|strict budget|hard cap|no more than)\b/i.test(lower)) {
       budgetFlexibility = 'STRICT';
-    } else if (/\b(?:around|roughly|about|flexible|stretch(?:able)?)\b/i.test(lower)) {
+    } else if (/\b(?:around|roughly|about|approx(?:imate(?:ly)?)?|approx\.|flexible|stretch(?:able)?)\b/i.test(lower)) {
       budgetFlexibility = 'FLEXIBLE_10_PERCENT';
     }
 
     const timeLookahead = '(?!(?:\\s*(?:sec|second|min|minute|hr|hour|day|week|month|year)s?\\b))';
     const foundBudgets: number[] = [];
 
-    // Pattern 1: Keywords like under, below, max, upto, within, around, for, at, budget
-    const p1 = new RegExp(`(?:under|below|less than|max(?:imum)?|budget(?: of)?|upto|within|around|for|at)\\s*(?:(₹|\\$|€|£|rs\\.?|inr|usd|eur|gbp)\\s*)?\\b([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(k|thousand|lakh|lac)?\\b${timeLookahead}\\s*(inr|usd|eur|gbp|rupees?|bucks?|₹|\\$|€|£|\\/-)?`, 'gi');
+    // Pattern 1: Keywords like under, below, max, upto, within, around, approx, roughly, about, for, at, budget
+    const p1 = new RegExp(`(?:under|below|less than|max(?:imum)?|budget(?: of)?|upto|within|around|approx(?:imate(?:ly)?)?|approx\\.?|roughly|about|for|at)\\s*(?:(₹|\\$|€|£|rs\\.?|inr|usd|eur|gbp)\\s*)?\\b([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(k|thousand|lakh|lac)?\\b${timeLookahead}\\s*(inr|usd|eur|gbp|rupees?|bucks?|₹|\\$|€|£|\\/-)?`, 'gi');
     let m: RegExpExecArray | null;
     while ((m = p1.exec(text)) !== null) {
       const rawSymbol = m[1] || m[4];

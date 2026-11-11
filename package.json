@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --build",
-    "test": "node --test tests/**/*.test.js",
+    "test": "npm run test:ts",
     "test:ts": "tsx --test tests/**/*.test.ts",
     "start": "tsx shared/orchestrator/server.ts",
     "defender": "tsx defender/server.ts",

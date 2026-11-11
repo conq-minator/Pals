@@ -336,10 +336,11 @@ export class ARBSpecNormalizer {
 
     // 4. GPU / Graphics
     if (mandatory['gpu'] && typeof mandatory['gpu'] === 'string') {
-      const requiredGpu = mandatory['gpu'].toLowerCase();
+      const requiredGpu = mandatory['gpu'].toLowerCase().replace(/\s+/g, '');
+      const actualGpu = specs.gpuModel ? specs.gpuModel.toLowerCase().replace(/\s+/g, '') : '';
       if (!specs.gpuModel) {
-        unverifiedSpecs.push(`Dedicated GPU (${mandatory['gpu']} required)`);
-      } else if (!specs.gpuModel.toLowerCase().includes(requiredGpu)) {
+        failedReasons.push(`GPU not specified in listing (required: ${mandatory['gpu']})`);
+      } else if (!actualGpu.includes(requiredGpu)) {
         failedReasons.push(`GPU ${specs.gpuModel} does not match required ${mandatory['gpu']}`);
       }
     }

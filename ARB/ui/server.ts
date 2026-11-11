@@ -64,13 +64,24 @@ const server = http.createServer(async (req: any, res: any) => {
     return;
   }
 
+  function parseJson(bodyStr: string, resObj: any): any | null {
+    try {
+      return JSON.parse(bodyStr || '{}');
+    } catch {
+      resObj.writeHead(400, { 'Content-Type': 'application/json' });
+      resObj.end(JSON.stringify({ error: 'Invalid JSON payload' }));
+      return null;
+    }
+  }
+
   // 3. API: Search & Arbitrate
   if (req.method === 'POST' && url.pathname === '/api/search') {
     let body = '';
     req.on('data', (chunk: any) => { body += chunk; });
     req.on('end', async () => {
+      const parsed = parseJson(body, res);
+      if (!parsed) return;
       try {
-        const parsed = JSON.parse(body || '{}');
         const prompt = parsed.prompt || parsed.query || '';
         if (!prompt) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -103,8 +114,10 @@ const server = http.createServer(async (req: any, res: any) => {
     let body = '';
     req.on('data', (chunk: any) => { body += chunk; });
     req.on('end', async () => {
+      const parsed = parseJson(body, res);
+      if (!parsed) return;
       try {
-        const { taskId, prompt, refinementPrompt } = JSON.parse(body || '{}');
+        const { taskId, prompt, refinementPrompt } = parsed;
         const text = prompt || refinementPrompt;
         if (!taskId || !text) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -127,13 +140,46 @@ const server = http.createServer(async (req: any, res: any) => {
     return;
   }
 
+  // 4b. API: Answer Ambiguity Clarification
+  if (req.method === 'POST' && url.pathname === '/api/answer') {
+    let body = '';
+    req.on('data', (chunk: any) => { body += chunk; });
+    req.on('end', async () => {
+      const parsed = parseJson(body, res);
+      if (!parsed) return;
+      try {
+        const { taskId, answer, selectedOption } = parsed;
+        const option = answer || selectedOption;
+        if (!taskId || !option) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'taskId and answer are required' }));
+          return;
+        }
+
+        const result = await arb.answerResearch(taskId, option);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          taskId,
+          result
+        }));
+      } catch (err: unknown) {
+        console.error('[ARB Server Error /api/answer]:', err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      }
+    });
+    return;
+  }
+
   // 5. API: Prepare Purchase Proposal
   if (req.method === 'POST' && url.pathname === '/api/propose') {
     let body = '';
     req.on('data', (chunk: any) => { body += chunk; });
     req.on('end', async () => {
+      const parsed = parseJson(body, res);
+      if (!parsed) return;
       try {
-        const { listing, taskId, options } = JSON.parse(body || '{}');
+        const { listing, taskId, options } = parsed;
         if (!listing) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Listing is required' }));

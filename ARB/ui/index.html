@@ -180,6 +180,9 @@
   </main>
 
   <script>
+    let currentTaskId = '';
+    let currentExtracted = null;
+
     function getApiBase() {
       // If the UI is served directly by the ARB server (port 3333), use relative root ''
       if (window.location.port === '3333') {
@@ -255,6 +258,8 @@
         }
 
         const data = await res.json();
+        currentTaskId = data.taskId;
+        currentExtracted = data.extracted;
 
         // 1. Populate Extraction Bar
         extractionSection.classList.remove('hidden');
@@ -280,10 +285,66 @@
       }
     }
 
+    async function answerClarification(option) {
+      if (!currentTaskId) return;
+      const loader = document.getElementById('loadingIndicator');
+      loader.classList.remove('hidden');
+      try {
+        const apiBase = getApiBase();
+        const res = await fetch(`${apiBase}/api/answer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ taskId: currentTaskId, answer: option })
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`ARB backend returned HTTP ${res.status}: ${errText}`);
+        }
+        const data = await res.json();
+        renderResults(data.result, currentExtracted || {});
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        loader.classList.add('hidden');
+      }
+    }
+
     function renderResults(result, extracted) {
       const banner = document.getElementById('winnerBanner');
       const tableBody = document.getElementById('matrixTableBody');
       const matchCounter = document.getElementById('matchCounter');
+
+      if (result.needsInput) {
+        matchCounter.innerText = 'Clarification Required';
+        const optionsHtml = (result.inputOptions || []).map((opt, i) => `
+          <button 
+            onclick="answerClarification('${opt.replace(/'/g, "\\'")}')" 
+            class="w-full text-left bg-slate-900 hover:bg-slate-800 text-cyan-300 hover:text-white px-4 py-3 rounded-xl border border-cyan-800/40 hover:border-cyan-500 transition text-sm flex items-center justify-between group"
+          >
+            <span><strong class="text-slate-400 font-mono mr-2">${i + 1}.</strong> ${opt}</span>
+            <i class="fa-solid fa-arrow-right text-slate-500 group-hover:text-cyan-400 transition"></i>
+          </button>
+        `).join('');
+
+        banner.innerHTML = `
+          <div class="space-y-4 w-full">
+            <div class="flex items-center space-x-2">
+              <span class="bg-amber-500 text-slate-950 font-bold text-xs px-2.5 py-1 rounded-md uppercase tracking-wider flex items-center gap-1">
+                <i class="fa-solid fa-circle-question"></i> Query Under-Specified
+              </span>
+              <span class="text-xs text-slate-400">Autonomous Ambiguity Guard</span>
+            </div>
+            <h2 class="text-lg font-semibold text-white">
+              ${result.inputQuestion || 'Which product variant or configuration do you prefer?'}
+            </h2>
+            <div class="space-y-2 pt-2">
+              ${optionsHtml}
+            </div>
+          </div>
+        `;
+        tableBody.innerHTML = `<tr><td colspan="7" class="px-6 py-8 text-center text-slate-500">Please choose one of the options above to proceed with precise market research.</td></tr>`;
+        return;
+      }
 
       matchCounter.innerText = `${result.qualifyingListingsFound} deals found out of ${result.totalListingsScanned} scanned`;
 

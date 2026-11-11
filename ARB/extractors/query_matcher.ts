@@ -14,6 +14,8 @@ export class ARBQueryMatcher {
     'order', 'me', 'my', 'near', 'nearby', 'want', 'need', 'some', 'please', 'pls',
     'deliver', 'delivered', 'home', 'now', 'asap', 'quick', 'fast', 'instant',
     'online', 'cheapest', 'lowest', 'rs', 'inr', 'usd', 'it', 'is', 'can', 'you', 'from',
+    // time and delivery duration words
+    'min', 'mins', 'minute', 'minutes', 'sec', 'secs', 'second', 'seconds', 'hr', 'hrs', 'hour', 'hours', 'day', 'days', 'week', 'weeks', 'today', 'tomorrow',
     // dietary words are handled as hard constraints (mandatorySpecifications.dietary), not keywords
     'veg', 'vegetarian', 'non-veg', 'nonveg', 'non', 'pure', 'eggless', 'vegan'
   ]);
@@ -73,7 +75,34 @@ export class ARBQueryMatcher {
       if (!isMacMini) {
         return { matches: false, reason: 'Query specifies Mac Mini, but listing is not a Mac Mini' };
       }
+      if (coreTokens.some(t => ['dock', 'stand', 'hub', 'case', 'mount'].includes(t))) {
+        if (!combined.includes('dock') && !combined.includes('stand') && !combined.includes('hub')) {
+          return { matches: false, reason: 'Query specifies Mac Mini dock/accessory, but listing is the Mac Mini computer itself' };
+        }
+      }
       return { matches: true };
+    }
+
+    // 1b. Laptop accessory guard (e.g. "laptop charger", "laptop bag")
+    if (coreTokens.includes('laptop') || coreTokens.includes('notebook')) {
+      const laptopAccessories = ['charger', 'adapter', 'bag', 'sleeve', 'case', 'skin', 'stand', 'cooler'];
+      const queryWantsLapAcc = coreTokens.some(t => laptopAccessories.includes(t));
+      if (queryWantsLapAcc) {
+        const listingHasAcc = laptopAccessories.some(a => combined.includes(a));
+        if (!listingHasAcc) {
+          return { matches: false, reason: 'Query requests laptop accessory, but listing is a laptop computer' };
+        }
+      }
+    }
+
+    // 1c. Strict GPU constraint (e.g. "rtx 4060 laptop")
+    const queryGpuMatch = query.toLowerCase().match(/\b(rtx\s*[0-9]{4}(?:\s*ti)?|gtx\s*[0-9]{4})\b/i);
+    if (queryGpuMatch) {
+      const targetGpu = queryGpuMatch[1].replace(/\s+/g, '');
+      const listingCombinedNoSpace = combined.replace(/\s+/g, '');
+      if (!listingCombinedNoSpace.includes(targetGpu)) {
+        return { matches: false, reason: `Query specifically requires GPU "${queryGpuMatch[1]}"` };
+      }
     }
 
     // 2. Specific Brand / Model constraints:

@@ -37,7 +37,7 @@ test('ARB Ambiguity: bare queries pause with needsInput=true and resume with res
   assert.ok(resumed.topRecommendations.some(l => l.productTitle.toLowerCase().includes('ddr5')));
 });
 
-test('ARB Budget Flexibility: FLEXIBLE_10_PERCENT expands budget ceiling by 10% when 0 qualify', async () => {
+test('ARB Budget Flexibility: over-budget stretch options appear in alternatives section, labelled over budget, and refused by preparePurchase', async () => {
   const arb = new ArbService();
   const taskId = 'test-flex-budget-1';
 
@@ -58,10 +58,23 @@ test('ARB Budget Flexibility: FLEXIBLE_10_PERCENT expands budget ceiling by 10% 
     mandatorySpecifications: { ram_gb: 16 }
   }, `${taskId}-flex`);
 
-  assert.ok(flexResult.qualifyingListingsFound > 0);
-  const overListing = flexResult.topRecommendations.find(l => l.totalLandedCost > 50000);
-  assert.ok(overListing);
-  assert.ok(overListing.pros.some(p => p.includes('under 10% flexibility policy')));
+  // Rule: topRecommendations must never contain over-budget items
+  assert.equal(flexResult.topRecommendations.length, 0);
+  assert.equal(flexResult.qualifyingListingsFound, 0);
+
+  // The 10% stretch option is shown in the alternatives section of arbitrationSummary
+  assert.ok(flexResult.arbitrationSummary.includes('Closest Realistic Alternatives Identified'));
+  assert.ok(flexResult.arbitrationSummary.includes('MSI Thin 15'));
+  assert.ok(flexResult.arbitrationSummary.includes('over your 50,000 INR budget'));
+
+  // Prepare purchase must strictly refuse over-budget listings
+  const taskState = ARBTaskStateStore.getInstance().get(`${taskId}-flex`);
+  const overListing = taskState?.allScannedListings?.find(l => l.totalLandedCost > 50000 && l.productTitle.includes('MSI Thin 15'));
+  assert.ok(overListing, 'Scanned listings must contain MSI Thin 15');
+  assert.throws(
+    () => arb.preparePurchase(overListing!, `${taskId}-flex`),
+    /exceeds task budget ceiling/
+  );
 });
 
 test('ARB MultiFactorRanker: softPreferences boost specFit score and deliveryBy adjusts speed', () => {

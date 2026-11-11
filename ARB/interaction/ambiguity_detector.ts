@@ -21,15 +21,24 @@ export class ARBAmbiguityDetector {
    */
   public static checkAmbiguity(prompt: string): AmbiguityClarification {
     const clean = prompt.trim().toLowerCase();
-    const tokens = clean.split(/\s+/).filter(Boolean);
+    const stripped = clean
+      .replace(/\b(?:please|pls|can you|could you|i want|i need|order me|order a|order|buy me|buy a|buy|find me|find|get me|get|show me|show|for me|for pc|for my pc|near me|cheap|best|some|a|an|the)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const tokens = stripped.split(/\s+/).filter(Boolean);
 
     // 1. Ambiguous RAM Query
-    // Query contains "ram" or "memory" but does not specify DDR4/DDR5 or Laptop vs Desktop
-    if ((clean === 'ram' || clean === 'buy ram' || clean === 'ddr ram') ||
-        (tokens.includes('ram') && !clean.includes('ddr4') && !clean.includes('ddr5') &&
-         !clean.includes('laptop') && !clean.includes('desktop') && !clean.includes('sodimm') &&
-         !/\b(?:phone|iphone|mobile|smartphone|tablet|ipad|macbook|mac mini|galaxy|pixel)\b/.test(clean) &&
-         !clean.includes('corsair') && !clean.includes('crucial') && !clean.includes('g.skill'))) {
+    // Query contains "ram", "memory stick", or "ram stick" but does not specify DDR4/DDR5 or Laptop vs Desktop
+    const isRamTrigger = stripped === 'ram' || stripped === 'buy ram' || stripped === 'ddr ram' ||
+                         stripped === 'memory stick' || stripped === 'memory sticks' ||
+                         stripped === 'ram stick' || stripped === 'ram sticks' ||
+                         tokens.includes('ram') || stripped.includes('memory stick') || stripped.includes('ram stick');
+
+    if (isRamTrigger &&
+        !clean.includes('ddr4') && !clean.includes('ddr5') &&
+        !clean.includes('laptop') && !clean.includes('desktop') && !clean.includes('sodimm') &&
+        !/\b(?:phone|iphone|mobile|smartphone|tablet|ipad|macbook|mac mini|galaxy|pixel|gaming laptop)\b/.test(clean) &&
+        !clean.includes('corsair') && !clean.includes('crucial') && !clean.includes('g.skill')) {
       return {
         isAmbiguous: true,
         question: 'Which type of RAM do you need for your system?',
@@ -44,7 +53,7 @@ export class ARBAmbiguityDetector {
 
     // 2. Ambiguous Pizza Query
     if (
-      /\bpizzas?\b/i.test(clean) &&
+      /\bpizzas?\b/i.test(stripped) &&
       !/\b(?:margherita|pepperoni|paneer|farmhouse|chicken|bbq|veg|non[- ]?veg|vegan|capsicum|corn|cheese)\b/i.test(clean) &&
       !/\b(?:cutter|pan|oven|stone|box|peel|paddle|tray|board|press)\b/i.test(clean)
     ) {
@@ -62,7 +71,7 @@ export class ARBAmbiguityDetector {
 
     // 3. Ambiguous Bandage Query
     if (
-      /\b(?:bandages?|band aid|band aids|bandaid|plaster)\b/i.test(clean) &&
+      /\b(?:bandages?|band aid|band aids|bandaid|plaster)\b/i.test(stripped) &&
       !/\b(?:crepe|elastic|sprain|washproof|strips?|fabric|gauze)\b/i.test(clean) &&
       !clean.includes('dress')
     ) {
@@ -78,7 +87,7 @@ export class ARBAmbiguityDetector {
     }
 
     // 4. Ambiguous Mac Mini Query
-    if (clean === 'mac mini' || clean === 'buy mac mini' || clean === 'apple mac mini') {
+    if (stripped === 'mac mini' || stripped === 'apple mac mini' || clean === 'mac mini' || clean === 'buy mac mini' || clean === 'apple mac mini') {
       return {
         isAmbiguous: true,
         question: 'Which Apple Mac mini configuration do you prefer?',

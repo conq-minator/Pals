@@ -166,7 +166,8 @@ export class ArbService {
           query,
           specs,
           canonicalGroups,
-          alternatives
+          alternatives,
+          effectivePayload.noBudgetStated
         )
     );
   }
@@ -234,54 +235,63 @@ export class ArbService {
       throw new Error(`Task '${taskId}' not found to resume with answer`);
     }
 
-    const updatedPayload = structuredClone(existing.payload);
-    const opt = selectedOption.toLowerCase();
+    // Handle numeric index answers ("1", "2", "3")
+    const trimmed = selectedOption.trim();
+    if (/^[1-9]$/.test(trimmed) && existing.inputOptions && existing.inputOptions.length >= parseInt(trimmed, 10)) {
+      selectedOption = existing.inputOptions[parseInt(trimmed, 10) - 1];
+    }
 
-    if (opt.includes('non-veg pizza') || opt.includes('non-veg')) {
+    const updatedPayload = structuredClone(existing.payload);
+    // Normalize "non veg" to "non-veg" to avoid substring mismatch with "veg"
+    const opt = selectedOption.toLowerCase().replace(/\bnon\s+veg\b/g, 'non-veg').trim();
+
+    if (opt.includes('non-veg') || opt.includes('pepperoni') || opt.includes('chicken')) {
       updatedPayload.productQuery = 'pepperoni chicken pizza';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         dietary: 'non-veg'
       };
-    } else if (opt.includes('veg pizza') || opt.includes('veg')) {
+    } else if (opt.includes('veg') || opt.includes('margherita') || opt.includes('paneer') || opt.includes('farmhouse')) {
       updatedPayload.productQuery = 'margherita farmhouse pizza';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         dietary: 'veg'
       };
-    } else if (opt.includes('laptop so-dimm')) {
+    } else if (opt.includes('combo') || opt.includes('value')) {
+      updatedPayload.productQuery = 'pizza combo value deals';
+    } else if (opt.includes('so-dimm') || opt.includes('sodimm') || opt.includes('laptop')) {
       updatedPayload.productQuery = 'laptop so-dimm ram';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         form_factor: 'so-dimm'
       };
-    } else if (opt.includes('desktop ddr4')) {
+    } else if (opt.includes('ddr4')) {
       updatedPayload.productQuery = 'desktop ddr4 ram';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         memory_type: 'ddr4'
       };
-    } else if (opt.includes('desktop ddr5')) {
+    } else if (opt.includes('ddr5') || opt.includes('desktop')) {
       updatedPayload.productQuery = 'desktop ddr5 ram';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         memory_type: 'ddr5'
       };
-    } else if (opt.includes('crepe elastic')) {
-      updatedPayload.productQuery = 'crepe bandage';
+    } else if (opt.includes('crepe') || opt.includes('elastic') || opt.includes('sprain')) {
+      updatedPayload.productQuery = 'crepe elastic bandage';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         type: 'crepe'
       };
-    } else if (opt.includes('adhesive bandage strips')) {
+    } else if (opt.includes('strip') || opt.includes('adhesive') || opt.includes('cut') || opt.includes('scrape')) {
       updatedPayload.productQuery = 'adhesive bandage strips';
       updatedPayload.mandatorySpecifications = {
         ...updatedPayload.mandatorySpecifications,
         type: 'strips'
       };
-    } else if (opt.includes('mac mini m4')) {
+    } else if (opt.includes('m4')) {
       updatedPayload.productQuery = 'mac mini m4';
-    } else if (opt.includes('mac mini m2')) {
+    } else if (opt.includes('m2')) {
       updatedPayload.productQuery = 'mac mini m2';
     } else {
       Object.assign(updatedPayload, stateStore.applyRefinement(taskId, selectedOption));
@@ -302,7 +312,8 @@ export class ArbService {
     productQuery: string,
     mandatorySpecs?: Record<string, string | number | boolean>,
     canonicalGroups?: CanonicalProductGroup[],
-    alternatives?: ClosestAlternativesReport
+    alternatives?: ClosestAlternativesReport,
+    noBudgetStated?: boolean
   ): string {
     if (qualifyingListings.length === 0) {
       let specDetails = '';
@@ -313,12 +324,12 @@ export class ArbService {
         `### Market Research Diagnostic: No Qualifying Deals Found`,
         ``,
         `> **Scanned:** ${totalScanned} listings.`,
-        `> **Budget Limit:** ${budgetCeiling.toLocaleString()} ${currency}`,
+        ...(noBudgetStated ? [] : [`> **Budget Limit:** ${budgetCeiling.toLocaleString()} ${currency}`]),
         ``,
         `**Why no listings qualified:**`,
         totalScanned === 0
           ? `- ARB has no verified merchant data for this item yet, and live web search returned no priced listings. ARB does not invent listings or prices.`
-          : `- Every scanned item either exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory specifications${specDetails}.`,
+          : `- Every scanned item either ${noBudgetStated ? 'did not meet your requirements' : `exceeded your strict budget cap of **${budgetCeiling.toLocaleString()} ${currency}** or did not meet your mandatory specifications`}${specDetails}.`,
         ...(alternatives?.hasAlternatives
           ? [
               ``,
@@ -342,7 +353,7 @@ export class ArbService {
       `**Top Recommendation:** **[${top.productTitle}](${top.productUrl})**`,
       `- **Merchant Source:** [${top.merchantName}](https://${top.merchantDomain})`,
       `- **Direct Product Link:** [${top.productUrl}](${top.productUrl})`,
-      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${savingsFromBudget > 0 ? `*(${savingsFromBudget.toLocaleString()} ${currency} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
+      `- **Net Landed Price:** **${top.totalLandedCost.toLocaleString()} ${currency}** ${!noBudgetStated && savingsFromBudget > 0 ? `*(${savingsFromBudget.toLocaleString()} ${currency} below your ${budgetCeiling.toLocaleString()} ${currency} budget ceiling)*` : ''}`,
       `- **Merchant Trust Score:** **${top.trustScore}/100** (${top.trustScore >= 90 ? 'Exemplary' : 'Trusted'})`,
       top.warrantyPeriodMonths ? `- **Warranty:** ${top.warrantyPeriodMonths} Months Official Coverage` : `- **${top.pros.find(p => /^(delivery eta|estimated delivery):/i.test(p)) || 'Delivery: see merchant page'}**`,
       ``,
@@ -415,13 +426,21 @@ export class ArbService {
       // For callers that pass a new correlation/task id to preparePurchase (like reg-pin, reg-proposal, bench-prep-1):
       const allStates = (stateStore as any).states as Map<string, any>;
       if (allStates) {
-        for (const s of allStates.values()) {
-          const match =
-            s.qualifyingListings?.find((l: any) => l.sku === listing.sku) ||
-            s.allScannedListings?.find((l: any) => l.sku === listing.sku);
+        const statesArr = Array.from(allStates.values()).reverse();
+        for (const s of statesArr) {
+          const match = s.qualifyingListings?.find((l: any) => l.sku === listing.sku);
           if (match && Math.abs(match.itemPrice - listing.itemPrice) < 0.01) {
             taskState = s;
             break;
+          }
+        }
+        if (!taskState) {
+          for (const s of statesArr) {
+            const match = s.allScannedListings?.find((l: any) => l.sku === listing.sku);
+            if (match && Math.abs(match.itemPrice - listing.itemPrice) < 0.01) {
+              taskState = s;
+              break;
+            }
           }
         }
       }

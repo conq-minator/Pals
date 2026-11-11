@@ -9,6 +9,8 @@ export interface ResearchTaskState {
   allScannedListings?: MerchantListing[];
   scannedListingsCount: number;
   arbitrationSummary: string;
+  inputOptions?: string[];
+  inputQuestion?: string;
   updatedAt: string;
 }
 
@@ -84,9 +86,9 @@ export class ARBTaskStateStore {
     const payload = structuredClone(existing.payload);
     const lower = refinementText.toLowerCase().trim();
 
-    // 0. Switch product query entirely (e.g. "show me garlic naan instead")
-    const switchMatch = lower.match(/(?:show me|instead of|switch to)\s+([a-z0-9\s]+?)(?:\s+instead)?$/i);
-    if (switchMatch) {
+    // 0. Switch product query entirely (e.g. "show me garlic naan instead", "actually i want eggs", "switch to pizza")
+    const switchMatch = lower.match(/(?:show me|instead of|switch to|change to|actually\s+(?:i want|i need|give me)?|actually)\s+([a-z0-9\s]+?)(?:\s+instead)?$/i);
+    if (switchMatch && switchMatch[1].trim()) {
       payload.productQuery = switchMatch[1].trim();
       payload.mandatorySpecifications = {};
       delete payload.category;
@@ -164,8 +166,9 @@ export class ARBTaskStateStore {
       };
     }
 
-    // 4. Quantity update (e.g. "make it 3")
-    const qtyMatch = lower.match(/(?:make it|quantity|qty|count)\s*([1-9][0-9]?)/i);
+    // 4. Quantity update (e.g. "make it 3", "2 of them", "count 4", "qty 2")
+    const qtyMatch = lower.match(/(?:make it|quantity|qty|count)\s*([1-9][0-9]?)/i) ||
+                     lower.match(/\b([1-9][0-9]?)\s+(?:of them|units?|items?|pizzas?|packs?|boxes?)\b/i);
     if (qtyMatch) {
       payload.quantity = parseInt(qtyMatch[1], 10);
     }
@@ -176,8 +179,8 @@ export class ARBTaskStateStore {
       payload.deliveryPostalCode = pinMatch[1];
     }
 
-    // 6. Brand Inclusions / Exclusions ("only lenovo", "no hp")
-    const brandOnlyMatch = lower.match(/\bonly\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)\b/i);
+    // 6. Brand Inclusions / Exclusions ("only lenovo", "prefer asus only", "prefer asus", "no hp", "exclude dell")
+    const brandOnlyMatch = lower.match(/\b(?:only|just|prefer)\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)(?:\s+only)?\b/i);
     if (brandOnlyMatch) {
       const ob = brandOnlyMatch[1];
       const formatted = ob.charAt(0).toUpperCase() + ob.slice(1).toLowerCase();
@@ -186,15 +189,15 @@ export class ARBTaskStateStore {
       payload.productQuery = `${formatted.toLowerCase()} ${cleanedQuery}`;
     }
 
-    const brandExcludeMatch = lower.match(/\bno\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)\b/i);
+    const brandExcludeMatch = lower.match(/\b(?:no|skip|exclude|avoid|without)\s+(hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)\b/i);
     if (brandExcludeMatch) {
       const eb = brandExcludeMatch[1].toUpperCase();
       payload.excludedBrands = Array.from(new Set([...(payload.excludedBrands || []), eb]));
     }
 
-    // 7. Merchant Inclusions / Exclusions ("skip Flipkart", "exclude Amazon", "only from Croma")
+    // 7. Merchant Inclusions / Exclusions ("skip Flipkart", "exclude Amazon", "only from Croma", "just dominos")
     const skipMatch = lower.match(/(?:skip|exclude|avoid|without|not from)\s+([a-z0-9\s,&']+)/i);
-    const isMerchantSkip = skipMatch && !/^(?:chicken|meat|egg|onion|garlic|hp|dell|lenovo)/.test(skipMatch[1].trim());
+    const isMerchantSkip = skipMatch && !/^(?:chicken|meat|egg|onion|garlic|hp|dell|lenovo|asus|acer|apple|msi|sony|bose|sennheiser|samsung|crucial|kingston|corsair|amul)/i.test(skipMatch[1].trim());
     if (skipMatch && isMerchantSkip) {
       // Any merchant can be skipped: names are matched against merchant domain/name by the providers.
       const names = skipMatch[1]
@@ -217,12 +220,15 @@ export class ARBTaskStateStore {
       payload.mandatorySpecifications = specs;
     }
 
-    const onlyMatch = lower.match(/(?:only from|only on|from|on)\s+([a-z0-9']+(?:\s+hut)?)/i);
-    if (onlyMatch && !skipMatch && !brandOnlyMatch) {
-      payload.mandatorySpecifications = {
-        ...payload.mandatorySpecifications,
-        target_merchants: onlyMatch[1].toLowerCase().replace(/['\s]/g, '')
-      };
+    const onlyMatch = lower.match(/(?:only from|only on|from|on|only|just)\s+([a-z0-9']+(?:\s+hut)?)/i);
+    if (onlyMatch && !skipMatch && !brandOnlyMatch && !brandExcludeMatch) {
+      const mch = onlyMatch[1].toLowerCase().replace(/['\s]/g, '');
+      if (['dominos', 'pizzahut', 'swiggy', 'zomato', 'blinkit', 'zepto', 'bigbasket', 'jiomart', 'amazon', 'flipkart', 'croma', 'reliance', 'dell', 'lenovo', 'apple', 'walmart', 'bestbuy'].some(known => mch.includes(known))) {
+        payload.mandatorySpecifications = {
+          ...payload.mandatorySpecifications,
+          target_merchants: mch
+        };
+      }
     }
 
     return payload;

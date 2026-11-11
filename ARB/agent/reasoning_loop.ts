@@ -113,6 +113,8 @@ export class ARBAgentLoop {
           qualifyingListings: [],
           scannedListingsCount: 0,
           arbitrationSummary: summary,
+          inputOptions: ambiguity.options,
+          inputQuestion: ambiguity.question,
           updatedAt: new Date().toISOString()
         });
 
@@ -205,9 +207,7 @@ export class ARBAgentLoop {
 
         const candidateQualifying: MerchantListing[] = [];
         for (const listing of state.allScannedListings) {
-          const allowFlexInTopRecs = correlationId?.startsWith('test-flex-budget');
-          const ceiling = (allowFlexInTopRecs && effectiveBudget > budgetCeiling) ? effectiveBudget : budgetCeiling;
-          if (listing.totalLandedCost > ceiling) continue;
+          if (listing.totalLandedCost > budgetCeiling) continue;
           if (listing.trustScore < minMerchantTrustScore) continue;
 
           // Semantic relevance check
@@ -310,19 +310,6 @@ export class ARBAgentLoop {
         } else if (state.allScannedListings.length === 0 && activeProviders.length < this.providers.length) {
           // Widen to all merchant providers
           activeProviders = this.providers;
-          continue;
-        } else if (
-          payload.budgetFlexibility === 'FLEXIBLE_10_PERCENT' &&
-          effectiveBudget === budgetCeiling
-        ) {
-          // Adaptively relax budget ceiling by 10%
-          effectiveBudget = Math.round(budgetCeiling * 1.1);
-          state.stepsTaken.push({
-            stepNumber: ++stepCount,
-            action: 'ADAPT_OR_RELAX',
-            description: `Zero qualifying listings under strict budget; expanding budget by 10% to ${effectiveBudget} ${currency}`,
-            timestamp: new Date().toISOString()
-          });
           continue;
         } else {
           done = true;
@@ -445,6 +432,7 @@ export class ARBAgentLoop {
         productQuery,
         payload,
         qualifyingListings: state.qualifyingListings,
+        allScannedListings: state.allScannedListings,
         scannedListingsCount: state.allScannedListings.length,
         arbitrationSummary: summary,
         updatedAt: new Date().toISOString()

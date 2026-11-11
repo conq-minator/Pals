@@ -111,7 +111,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'pizza',
     vertical: 'food_delivery',
     aliases: ['pizza', 'pizzas', 'margherita', 'pepperoni', 'farmhouse pizza', 'dominos', 'domino s', 'pizza hut'],
-    blockers: ['pizza cutter', 'cutter'],
+    blockers: ['pizza cutter', 'cutter', 'pizza oven', 'oven', 'pizza stone', 'stone', 'pizza pan', 'pan', 'peel', 'paddle', 'press', 'maker'],
     searchTerm: 'pizza',
     taxRate: 0.05,
     specs: { cuisine: 'Italian / Fast Food', serves: '1-2 (medium)' },
@@ -138,7 +138,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'naan',
     vertical: 'food_delivery',
     aliases: ['naan', 'nan bread', 'butter naan', 'garlic naan', 'tandoori naan', 'plain naan', 'cheese naan', 'kulcha', 'tandoori roti', 'roti'],
-    blockers: ['naan maker', 'maker'],
+    blockers: ['naan maker', 'maker', 'naan tawa', 'tawa', 'pan'],
     searchTerm: 'naan',
     taxRate: 0.05,
     specs: { cuisine: 'North Indian Tandoor', serves: '1 piece' },
@@ -164,7 +164,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'burger',
     vertical: 'food_delivery',
     aliases: ['burger', 'burgers', 'whopper', 'mcaloo', 'mcchicken', 'cheeseburger', 'zinger'],
-    blockers: ['burger press', 'press'],
+    blockers: ['burger press', 'press', 'burger box', 'box'],
     searchTerm: 'burger',
     taxRate: 0.05,
     specs: { cuisine: 'Fast Food', serves: '1' },
@@ -205,7 +205,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'milk',
     vertical: 'quick_commerce',
     aliases: ['milk', 'toned milk', 'full cream milk', 'amul taaza', 'amul milk'],
-    blockers: ['milkshake', 'milk shake', 'chocolate milk powder', 'milk powder', 'milk frother', 'frother'],
+    blockers: ['milkshake', 'milk shake', 'chocolate milk powder', 'milk powder', 'milk frother', 'frother', 'milk bottle', 'bottle'],
     searchTerm: 'amul taaza milk',
     specs: { type: 'Daily Fresh Dairy', pack: '1 Litre' },
     pros: QC_PROS,
@@ -223,7 +223,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'eggs',
     vertical: 'quick_commerce',
     aliases: ['egg', 'eggs', 'anda', 'brown eggs', 'farm eggs'],
-    blockers: ['egg curry', 'egg biryani', 'egg roll', 'eggless', 'egg boiler', 'boiler'],
+    blockers: ['egg curry', 'egg biryani', 'egg roll', 'eggless', 'egg boiler', 'boiler', 'egg tray', 'tray', 'egg beater', 'beater'],
     searchTerm: 'eggs',
     specs: { type: 'Farm Fresh Eggs', pack: '12 pcs' },
     pros: QC_PROS,
@@ -240,7 +240,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'bread',
     vertical: 'quick_commerce',
     aliases: ['bread', 'brown bread', 'white bread', 'multigrain bread', 'sandwich bread', 'pav'],
-    blockers: ['garlic bread', 'bread pakora', 'naan bread', 'nan bread', 'bread knife', 'knife'],
+    blockers: ['garlic bread', 'bread pakora', 'naan bread', 'nan bread', 'bread knife', 'knife', 'bread toaster', 'toaster'],
     searchTerm: 'bread',
     specs: { type: 'Fresh Bakery', pack: '400 g loaf' },
     pros: QC_PROS,
@@ -257,7 +257,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'butter',
     vertical: 'quick_commerce',
     aliases: ['butter', 'amul butter', 'salted butter', 'unsalted butter'],
-    blockers: ['butter naan', 'butter chicken', 'peanut butter', 'butter masala', 'butter paneer', 'paneer butter', 'butter milk', 'buttermilk', 'butter scotch', 'butterscotch', 'cocoa butter', 'shea butter', 'butter paper', 'paper'],
+    blockers: ['butter naan', 'butter chicken', 'peanut butter', 'butter masala', 'butter paneer', 'paneer butter', 'butter milk', 'buttermilk', 'butter scotch', 'butterscotch', 'cocoa butter', 'shea butter', 'butter paper', 'paper', 'butter dish', 'dish'],
     searchTerm: 'amul butter',
     specs: { type: 'Dairy', pack: '100 g' },
     pros: QC_PROS,
@@ -294,7 +294,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'bandage',
     vertical: 'pharmacy',
     aliases: ['bandage', 'bandages', 'band aid', 'band aids', 'bandaid', 'bandaids', 'plaster', 'plasters', 'adhesive bandage', 'crepe bandage', 'elastic bandage', 'gauze', 'first aid', 'hansaplast'],
-    blockers: ['bandage dress', 'dress'],
+    blockers: ['bandage dress', 'dress', 'bandage scissors', 'scissors'],
     searchTerm: 'bandage',
     specs: { type: 'First Aid / Wound Care' },
     pros: RX_PROS,
@@ -319,6 +319,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'paracetamol',
     vertical: 'pharmacy',
     aliases: ['paracetamol', 'dolo', 'dolo 650', 'crocin', 'calpol', 'fever tablet', 'fever medicine', 'acetaminophen', 'tylenol'],
+    blockers: ['syrup', 'paracetamol syrup', 'suspension'],
     searchTerm: 'paracetamol',
     specs: { type: 'OTC Medicine (Analgesic / Antipyretic)' },
     pros: RX_PROS,
@@ -341,7 +342,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'desktop_ram',
     vertical: 'pc_components',
     aliases: ['ddr5', 'ddr4', 'ddr5 ram', 'ddr4 ram', 'ram stick', 'ram sticks', 'ram kit', 'desktop ram', 'memory kit', 'dimm', 'ram module', 'ram upgrade', 'ram'],
-    blockers: ['laptop', 'notebook', 'macbook', 'phone', 'mobile', 'smartphone', 'tablet', 'ipad', 'sodimm', 'so dimm', 'mac mini', 'gpu', 'graphics card', 'mount', 'ram mount', '1500', 'truck', 'parts'],
+    blockers: ['laptop', 'notebook', 'macbook', 'phone', 'mobile', 'smartphone', 'tablet', 'ipad', 'sodimm', 'so dimm', 'mac mini', 'gpu', 'graphics card', 'mount', 'ram mount', '1500', 'truck', 'parts', 'cooler', 'ram cooler', 'heatsink', 'ram heatsink', 'ddr5 ram heatsink'],
     searchTerm: 'ddr5 ram',
     warrantyMonths: 120,
     specs: { form_factor: 'Desktop DIMM (288-pin)' },
@@ -368,7 +369,7 @@ const CATALOG: CatalogEntry[] = [
     id: 'laptop_ram',
     vertical: 'pc_components',
     aliases: ['sodimm', 'so dimm', 'laptop ram', 'ram for laptop', 'ram for my laptop', 'laptop memory', 'notebook ram', 'laptop ram upgrade'],
-    blockers: ['mount', 'ram mount', '1500', 'truck', 'parts'],
+    blockers: ['mount', 'ram mount', '1500', 'truck', 'parts', 'cooler', 'ram cooler', 'heatsink', 'ram heatsink', 'ddr5 ram heatsink'],
     searchTerm: 'ddr5 sodimm laptop ram',
     warrantyMonths: 120,
     specs: { form_factor: 'Laptop SO-DIMM (262-pin)' },
@@ -415,7 +416,52 @@ export class ARBEverydayCatalog {
         best = { entry, score };
       }
     }
+    if (!best) {
+      const hasMemBrand = /\b(?:corsair|crucial|kingston|g\.?skill|xpg|teamgroup|patriot)\b/i.test(normalized);
+      const hasMemCap = /\b(?:4|8|16|24|32|64|128)\s*gb\b/i.test(normalized);
+      if (hasMemBrand && hasMemCap) {
+        const isLaptop = /laptop|notebook|sodimm|so-dimm/i.test(normalized);
+        const targetId = isLaptop ? 'laptop_ram' : 'desktop_ram';
+        const entry = CATALOG.find(e => e.id === targetId);
+        if (entry) return entry;
+      }
+    }
     return best?.entry ?? null;
+  }
+
+  /**
+   * Extracts substantive noun tokens from the query that are NOT part of any of the entry's aliases.
+   * If a user asks for "pizza oven", "oven" is not part of pizza aliases. The user wants an oven,
+   * not the pizza itself.
+   */
+  public static getNonAliasTokens(query: string, entry: CatalogEntry): string[] {
+    const tokens = ARBQueryMatcher.extractCoreTokens(query);
+    const aliasWords = new Set<string>();
+    for (const alias of entry.aliases) {
+      for (const w of alias.toLowerCase().split(/\s+/)) {
+        if (w) aliasWords.add(w);
+      }
+    }
+    const knownBrands = new Set([
+      'amul', 'licious', 'eggoz', 'fresho', 'harvest', 'gold', 'britannia', 'modern',
+      'mother', 'dairy', 'chobani', 'vital', 'farms', 'great', 'value', 'dynaplast',
+      'hansaplast', 'dolo', 'crocin', 'calpol', 'tylenol', 'equate', 'kingston',
+      'crucial', 'corsair', 'gskill', 'xpg', 'vedant', 'mdcomputers', 'primeabgb',
+      'dominos', 'pizzahut', 'swiggy', 'zomato', 'blinkit', 'zepto'
+    ]);
+    const commonQualifiers = new Set([
+      'pack', 'pcs', 'piece', 'pieces', 'gm', 'gms', 'kg', 'ml', 'ltr', 'large', 'medium', 'small',
+      'regular', 'fresh', 'raw', 'organic', 'pure', 'farm', 'white', 'brown', 'veg', 'non-veg', 'nonveg',
+      'min', 'mins', 'minute', 'minutes', 'sec', 'secs', 'second', 'seconds', 'hr', 'hrs', 'hour', 'hours', 'day', 'days'
+    ]);
+
+    return tokens.filter(t => {
+      if (aliasWords.has(t)) return false;
+      if (entry.aliases.some(a => a.includes(t))) return false;
+      if (knownBrands.has(t)) return false;
+      if (commonQualifiers.has(t)) return false;
+      return true;
+    });
   }
 
   /**
@@ -442,9 +488,12 @@ export class ARBEverydayCatalog {
   public static isOfferForQuery(query: string, listingTitle: string): boolean {
     const entry = this.matchEntry(query);
     if (!entry) return false;
-    const tokens = ARBQueryMatcher.extractCoreTokens(query);
-    const ACCESSORY_WORDS = ['mount', 'parts', 'dress', 'paper', 'knife', 'frother', 'cutter', 'press', 'maker', 'boiler', 'cover', 'bag', 'stand', 'case'];
-    if (tokens.some(t => ACCESSORY_WORDS.includes(t))) return false;
+    const nonAliasNouns = this.getNonAliasTokens(query, entry);
+    if (nonAliasNouns.length > 0) {
+      const titleLower = listingTitle.toLowerCase();
+      const hasAll = nonAliasNouns.every(noun => this.keywordHits([noun], titleLower) > 0);
+      if (!hasAll) return false;
+    }
     const title = listingTitle.trim().toLowerCase();
     return entry.offers.some(o => o.title.toLowerCase() === title);
   }
@@ -472,6 +521,14 @@ export class ARBEverydayCatalog {
   public static resolve(query: string, targetCurrency: string): ResolvedCatalogOffer[] {
     const entry = this.matchEntry(query);
     if (!entry) return [];
+
+    const nonAliasNouns = this.getNonAliasTokens(query, entry);
+    if (nonAliasNouns.length > 0) {
+      const qualifying = entry.offers.filter(o =>
+        nonAliasNouns.every(noun => this.keywordHits([noun], o.title.toLowerCase()) > 0)
+      );
+      if (qualifying.length === 0) return [];
+    }
 
     const region = this.regionForCurrency(targetCurrency);
     let offers = region ? entry.offers.filter(o => o.region === region) : entry.offers;
