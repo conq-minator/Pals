@@ -414,3 +414,8 @@ export class GlyClient {
 
 // Singleton GLY client instance
 export const glyClient = new GlyClient();
+
+/** Ask something through the chat panel, so the question shows in the chat like a typed one. */
+export function askInChat(text: string): void {
+  window.dispatchEvent(new CustomEvent('pals:ask', { detail: text }));
+}

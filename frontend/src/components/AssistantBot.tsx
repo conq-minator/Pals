@@ -1,236 +1,428 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ChatMessage, PurchaseProposal, TaskLifecycleEvent } from '../types/index.js';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ChatMessage,
+  PurchaseProposal,
+  TaskLifecycleEvent
+} from '../types/index.js';
 import { glyClient, GlyChatResponse, money, ProductCardData } from '../api/glyClient.js';
 import { Markdown } from './Markdown.js';
-import { ShoppingBagIcon } from './Icons.js';
-import { LogoMark } from './Logo.js';
+import { PaliAvatar } from './GlyAvatar.js';
+import {
+  SendIcon,
+  ShieldCheckIcon,
+  InfoIcon,
+  SparklesIcon,
+  LockClosedIcon,
+  SlidersIcon
+} from './Icons.js';
 
-type Msg = ChatMessage & { products?: ProductCardData[]; sources?: { n: number; title: string; url: string }[] };
+interface AssistantBotProps {
+  onProposalReceived: (proposal: PurchaseProposal) => void;
+  activeProposal: PurchaseProposal | null;
+  onTriggerApproval?: () => void;
+  onOpenLimits?: () => void;
+  isApproved?: boolean;
+  onCelebrate?: () => void;
+  compactMode?: boolean;
+}
 
-const SUGGESTIONS = [
-  'Find wireless earbuds under $100',
-  'How do I pay with PayPal?',
-  'How do PayPal refunds work?',
-  'How do you pick the best deal?',
-];
-
-const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const id = () => `m_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-
-/** The chat. Only this box scrolls; the page never jumps. */
-export const AssistantBot: React.FC<{ onProposalReceived: (p: PurchaseProposal) => void }> = ({ onProposalReceived }) => {
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState('');
-  const [waiting, setWaiting] = useState(false);
-  const [task, setTask] = useState<TaskLifecycleEvent | null>(null);
-  const scroller = useRef<HTMLDivElement>(null);
-  const stick = useRef(true); // follow new messages unless the user scrolled up to read
+export const AssistantBot: React.FC<AssistantBotProps> = ({
+  onProposalReceived,
+  activeProposal,
+  onTriggerApproval,
+  onOpenLimits,
+  isApproved,
+  onCelebrate,
+  compactMode = false
+}) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome',
+      sender: 'gly',
+      content: "Hi! I'm Pali 👋\n\nI can find deals for you, prepare a purchase for you to approve, and answer questions about PayPal. What can I help with?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+  ]);
+  const [inputText, setInputText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [mascotMood, setMascotMood] = useState<'idle' | 'happy' | 'thinking' | 'celebrating'>('idle');
+  const [activeTask, setActiveTask] = useState<TaskLifecycleEvent | null>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true); // follow new messages unless the user scrolled up to read
   const waitTimer = useRef<ReturnType<typeof setTimeout>>();
 
+  // Scroll the chat box itself; scrollIntoView would scroll the whole page down.
+  const scrollToBottom = () => {
+    const el = scrollerRef.current;
+    if (el && stickRef.current) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  };
+
   useEffect(() => {
-    const offMsg = glyClient.onMessage((res: GlyChatResponse) => {
-      setWaiting(false);
-      setTask(null); // a reply (or an error) ends any "retrying…" status
-      if (res.purchaseProposal) onProposalReceived(res.purchaseProposal);
+    scrollToBottom();
+  }, [messages, isTyping, activeTask]);
+
+  // When payment is approved, Pali celebrates!
+  useEffect(() => {
+    if (isApproved) {
+      setMascotMood('celebrating');
+      onCelebrate?.();
       setMessages((prev) => [
         ...prev,
         {
-          id: id(),
+          id: `msg_celebrate_${Date.now()}`,
           sender: 'gly',
-          content: res.replyText,
-          timestamp: now(),
-          intent: res.intent,
-          products: res.products,
-          sources: res.references?.map((r, i) => ({ n: Number(r.section.replace(/\D/g, '')) || i + 1, title: r.title, url: r.url }))
+          content: "YAY! We did it! 🎉 Your payment went through!\n\n✓ The maximum price is locked down tight\n✓ Covered by PayPal 180-Day Buyer Protection\n✓ Receipt saved\n\nYou're completely protected! 🚀",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
+      const timer = setTimeout(() => setMascotMood('idle'), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isApproved, onCelebrate]);
+
+  /**
+   * Wire to GLY's Conversational Interface (REST/WebSocket handler)
+   * Boundary rule: Pali communicates ONLY with GLY, never directly calling external LLMs or PayPal.
+   */
+  useEffect(() => {
+    const unsubMessage = glyClient.onMessage((res: GlyChatResponse) => {
+      setIsTyping(false);
+      setActiveTask(null); // a reply (or an error) ends any "retrying…" status
+      setMascotMood('happy');
+
+      if (res.purchaseProposal) {
+        onProposalReceived(res.purchaseProposal);
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_pali_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          sender: 'gly',
+          content: res.replyText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          intent: res.intent,
+          references: res.references,
+          proposal: res.purchaseProposal,
+          paymentResult: res.paymentResult,
+          products: res.products
+        } as ChatMessage
+      ]);
+
+      setTimeout(() => setMascotMood('idle'), 3000);
     });
-    const offTask = glyClient.onTaskEvent((evt) => {
-      setTask(evt.status === 'COMPLETED' || evt.status === 'FAILED' ? null : evt);
+
+    const unsubTask = glyClient.onTaskEvent((evt: TaskLifecycleEvent) => {
+      setActiveTask(evt);
+      if (evt.status === 'COMPLETED' || evt.status === 'FAILED') {
+        setTimeout(() => setActiveTask(null), 4000);
+      }
     });
+
+    const onAsk = (e: Event) => handleSendRef.current((e as CustomEvent<string>).detail);
+    window.addEventListener('pals:ask', onAsk);
+
     return () => {
-      offMsg();
-      offTask();
+      window.removeEventListener('pals:ask', onAsk);
+      unsubMessage();
+      unsubTask();
     };
   }, [onProposalReceived]);
 
-  // Scroll the chat box itself (scrollIntoView would scroll the whole page).
-  useEffect(() => {
-    const el = scroller.current;
-    if (el && stick.current) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [messages, waiting, task]);
+  const handleSendMessage = async (textToSend?: string) => {
+    const messageContent = (textToSend || inputText).trim();
+    if (!messageContent) return;
 
-  const onScroll = () => {
-    const el = scroller.current;
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // Add user bubble
+    const userMsg: ChatMessage = {
+      id: `msg_user_${Date.now()}`,
+      sender: 'user',
+      content: messageContent,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    if (!textToSend) setInputText('');
+    setIsTyping(true);
+    setMascotMood('thinking');
+    stickRef.current = true;
+    clearTimeout(waitTimer.current);
+    waitTimer.current = setTimeout(() => setIsTyping(false), 60_000); // never show "typing" forever
+
+    try {
+      // Dispatches strictly to GLY's conversational gateway
+      await glyClient.sendChatMessage(messageContent);
+    } catch {
+      setIsTyping(false);
+      setMascotMood('idle');
+    }
   };
 
-  const send = (text: string) => {
-    const t = text.trim();
-    if (!t) return;
-    stick.current = true;
-    setMessages((prev) => [...prev, { id: id(), sender: 'user', content: t, timestamp: now() }]);
-    setInput('');
-    setWaiting(true);
-    clearTimeout(waitTimer.current);
-    waitTimer.current = setTimeout(() => setWaiting(false), 60_000); // never spin forever
-    void glyClient.sendChatMessage(t);
+  const handleSendRef = useRef(handleSendMessage);
+  handleSendRef.current = handleSendMessage;
+
+  const handleExplainBreakdown = () => {
+    if (!activeProposal) {
+      setMessages((prev) => [...prev, {
+        id: `msg_pali_${Date.now()}`,
+        sender: 'gly',
+        content: "There's no offer to review yet. Ask me to find something, then press **Get this ready** on a result.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+      return;
+    }
+    const { basePrice, discountApplied, shippingFee, taxes, totalPayable, currency } = activeProposal.pricingBreakdown;
+    const sym = currency === 'INR' ? '₹' : '$';
+    const explanation = `Here's the simple breakdown for the ${activeProposal.productTitle} from ${activeProposal.merchantName}:\n\n` +
+      `- Price: ${sym}${basePrice.toFixed(2)}\n` +
+      `- Discount: -${sym}${discountApplied.toFixed(2)}\n` +
+      `- Shipping: ${shippingFee === 0 ? 'free' : `${sym}${shippingFee.toFixed(2)}`}\n` +
+      `- Taxes: ${sym}${taxes.toFixed(2)}\n\n` +
+      `**Total: ${sym}${totalPayable.toFixed(2)} ${currency}.**\n` +
+      `Your approval covers exactly this amount: you can't be charged more.`;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `msg_user_${Date.now()}`,
+        sender: 'user',
+        content: "Review this purchase cost breakdown",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      },
+      {
+        id: `msg_pali_${Date.now() + 1}`,
+        sender: 'gly',
+        content: explanation,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }
+    ]);
+    setMascotMood('happy');
+    setTimeout(() => setMascotMood('idle'), 2500);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-card dark:border-slate-800 dark:bg-slate-900">
-      <header className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
-        <LogoMark className="h-9 w-9" />
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">PALS assistant</h2>
-          <p className="hidden truncate text-xs text-slate-500 sm:block dark:text-slate-400">Finds deals and answers PayPal questions</p>
-        </div>
-      </header>
-
-      <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
-        {messages.length === 0 && (
-          <div className="mx-auto max-w-md py-6 text-center">
-            <p className="text-base font-semibold text-slate-900 dark:text-white">Hi, how can I help?</p>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              I can find deals, prepare a purchase for you to approve, and answer questions about PayPal.
-            </p>
-            <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => send(s)}
-                  className="rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-700 transition hover:border-fintech-bright hover:text-fintech-bright dark:border-slate-700 dark:text-slate-200"
-                >
-                  {s}
-                </button>
-              ))}
+    <div
+      className={`bg-white dark:bg-slate-900 flex flex-col h-full overflow-hidden ${
+        compactMode
+          ? 'border-0'
+          : 'border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-card h-[75dvh] max-h-[640px] min-h-[460px]'
+      }`}
+    >
+      {/* Bot Chat Header (only in full mode) */}
+      {!compactMode && (
+        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-slate-50 via-blue-50/30 to-white dark:from-slate-900 dark:via-slate-900 dark:to-slate-900 flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <PaliAvatar size="md" mood={mascotMood} />
+            <div>
+              <div className="flex items-center space-x-1.5">
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 tracking-tight">Pali</h3>
+                <span className="text-[10px] bg-blue-100 dark:bg-blue-950/70 text-fintech-bright dark:text-cyan-300 font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Fintech Guide
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Online</span>
+              </p>
             </div>
           </div>
-        )}
 
-        {messages.map((m) => (
-          <MessageBubble key={m.id} msg={m} onPick={(p) => send(`Get the ${p.title} from ${p.merchant} ready`)} disabled={waiting} />
-        ))}
 
-        {(waiting || task) && (
-          <div className="flex items-center gap-2 pl-1 text-xs text-slate-500 dark:text-slate-400" aria-live="polite">
-            <span className="flex gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fintech-bright" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fintech-bright [animation-delay:0.15s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-fintech-bright [animation-delay:0.3s]" />
-            </span>
-            <span className="truncate">{task?.statusMessage || 'Thinking…'}</span>
-          </div>
-        )}
-      </div>
-
-      <form
-        className="flex items-end gap-2 border-t border-slate-100 p-3 dark:border-slate-800"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(input);
-        }}
-      >
-        <label htmlFor="chat-input" className="sr-only">Message PALS</label>
-        <input
-          id="chat-input"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about a product or PayPal…"
-          autoComplete="off"
-          className="min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-fintech-bright focus:outline-none focus:ring-2 focus:ring-fintech-bright/30 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-        />
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          aria-label="Send"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-fintech-bright text-white transition hover:bg-fintech-vibrant disabled:opacity-40"
-        >
-          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5" /></svg>
-        </button>
-      </form>
-    </section>
-  );
-};
-
-const MessageBubble: React.FC<{ msg: Msg; onPick: (p: ProductCardData) => void; disabled: boolean }> = ({ msg, onPick, disabled }) => {
-  const user = msg.sender === 'user';
-  const [showSources, setShowSources] = useState(false);
-  const error = msg.intent === 'INTENT_ERROR' || msg.intent === 'INTENT_PAYMENT_FAILED';
-  return (
-    <div className={`flex ${user ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[92%] sm:max-w-[80%] ${user ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-        <div
-          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-            user
-              ? 'rounded-br-md bg-fintech-navy text-white'
-              : error
-              ? 'rounded-bl-md border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100'
-              : 'rounded-bl-md bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-100'
-          }`}
-        >
-          {user ? <p className="whitespace-pre-wrap break-words">{msg.content}</p> : <Markdown text={msg.content} onCite={() => setShowSources(true)} />}
         </div>
+      )}
 
-        {msg.products && msg.products.length > 0 && (
-          <ul className="mt-1 w-full space-y-2">
-            {msg.products.map((p, i) => (
-              <li key={i} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{p.title}</p>
-                    <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{p.merchant}</p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold text-slate-900 dark:text-white">{money(p.price)}</p>
+      {/* Chat Messages List */}
+      <div
+        ref={scrollerRef}
+        onScroll={() => {
+          const el = scrollerRef.current;
+          if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-3.5"
+      >
+        {messages.map((msg) => {
+          const isUser = msg.sender === 'user';
+          return (
+            <div
+              key={msg.id}
+              className={`flex items-end space-x-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}
+            >
+              {!isUser && (
+                <div className="shrink-0 mb-1">
+                  <PaliAvatar size="sm" mood={isTyping ? 'thinking' : 'idle'} />
                 </div>
-                {p.highlights.length > 0 && (
-                  <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{p.highlights.slice(0, 3).join(' · ')}</p>
-                )}
-                <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onPick(p)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-fintech-bright px-3 py-1.5 text-xs font-medium text-white transition hover:bg-fintech-vibrant disabled:opacity-50"
-                  >
-                    <ShoppingBagIcon className="h-3.5 w-3.5" />
-                    Get this ready
-                  </button>
-                  {p.url && (
-                    <a href={p.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 underline hover:text-fintech-bright dark:text-slate-400">
-                      View on site
-                    </a>
+              )}
+
+              <div className={`max-w-[85%] space-y-1 ${isUser ? 'items-end' : 'items-start'}`}>
+                <div
+                  className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm leading-relaxed ${
+                    isUser
+                      ? 'bg-fintech-navy text-white rounded-br-xs shadow-sm font-medium'
+                      : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-200 rounded-bl-xs shadow-xs'
+                  }`}
+                >
+                  {isUser ? (
+                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  ) : (
+                    <Markdown text={msg.content} />
+                  )}
+
+                  {/* Grounded PayPal Citations */}
+                  {msg.references && msg.references.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 dark:border-slate-700 text-[11px] text-slate-600 dark:text-slate-400 space-y-1">
+                      <span className="font-semibold text-fintech-bright dark:text-cyan-300 flex items-center space-x-1">
+                        <InfoIcon className="w-3.5 h-3.5" />
+                        <span>Sources</span>
+                      </span>
+                      {msg.references.map((ref, i) => (
+                        <div key={i} className="bg-white/70 dark:bg-slate-900/70 px-2 py-1 rounded-lg text-[11px] border border-slate-200/50 dark:border-slate-800">
+                          <strong>{ref.section.replace(/\D/g, '') || i + 1}.</strong> {ref.title}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
 
-        {msg.sources && msg.sources.length > 0 && (
-          <div className="px-1 text-xs text-slate-500 dark:text-slate-400">
-            <button type="button" onClick={() => setShowSources((v) => !v)} className="underline-offset-2 hover:underline">
-              {showSources ? 'Hide sources' : `Sources (${msg.sources.length})`}
-            </button>
-            {showSources && (
-              <ol className="mt-1 space-y-0.5">
-                {msg.sources.map((s) => (
-                  <li key={s.n}>
-                    <span className="font-semibold">{s.n}.</span>{' '}
-                    {/^https?:\/\//.test(s.url) ? (
-                      <a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-fintech-bright hover:underline">{s.title}</a>
-                    ) : (
-                      s.title
-                    )}
-                  </li>
-                ))}
-              </ol>
+                {(msg as ChatMessage & { products?: ProductCardData[] }).products?.length ? (
+                  <ul className="space-y-2 pt-1">
+                    {(msg as ChatMessage & { products?: ProductCardData[] }).products!.map((p, i) => (
+                      <li key={i} className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 shadow-xs">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-slate-900 dark:text-white">{p.title}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{p.merchant}</p>
+                          </div>
+                          <span className="shrink-0 text-sm font-black text-fintech-bright">{money(p.price)}</span>
+                        </div>
+                        {p.highlights.length > 0 && (
+                          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{p.highlights.slice(0, 3).join(' · ')}</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            disabled={isTyping}
+                            onClick={() => handleSendMessage(`Get the ${p.title} from ${p.merchant} ready`)}
+                            className="text-xs font-bold bg-fintech-bright hover:bg-fintech-vibrant text-white px-3.5 py-1.5 rounded-full transition disabled:opacity-50"
+                          >
+                            Get this ready
+                          </button>
+                          {p.url && (
+                            <a href={p.url} target="_blank" rel="noopener noreferrer" className="text-xs text-slate-500 hover:text-fintech-bright underline">
+                              View on site
+                            </a>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                <div className={`text-[10px] text-slate-400 px-1 ${isUser ? 'text-right' : 'text-left'}`}>
+                  {msg.timestamp}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Out-of-band asynchronous task activity indicator */}
+        {activeTask && (
+          <div className="mx-1 p-3 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/80 dark:border-blue-900/60 rounded-2xl flex items-center space-x-3 text-xs text-blue-950 dark:text-blue-100 animate-pulse">
+            <div className="w-4 h-4 border-2 border-fintech-bright border-t-transparent rounded-full animate-spin shrink-0" />
+            <div className="flex-1 min-w-0">
+              <span className="font-bold uppercase tracking-wider text-[10px] text-fintech-bright dark:text-cyan-300">
+                Working on it
+              </span>
+              <p className="truncate text-slate-700 dark:text-slate-300 text-[11px]">
+                {activeTask.statusMessage || `Task ${activeTask.status}`}
+              </p>
+            </div>
+            {activeTask.progressPercent !== undefined && (
+              <span className="font-mono text-xs font-bold text-fintech-bright">
+                {activeTask.progressPercent}%
+              </span>
             )}
           </div>
         )}
 
-        <span className={`px-1 text-[10px] text-slate-400 ${user ? 'text-right' : ''}`}>{msg.timestamp}</span>
+        {/* Animated Typing Indicator */}
+        {isTyping && (
+          <div className="flex items-center space-x-2 text-slate-400">
+            <div className="shrink-0">
+              <PaliAvatar size="sm" mood="thinking" />
+            </div>
+            <div className="bg-slate-100 dark:bg-slate-800 px-3.5 py-2 rounded-2xl rounded-bl-xs text-xs flex items-center space-x-1.5 shadow-xs">
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">Pali is typing</span>
+              <span className="w-1.5 h-1.5 bg-fintech-bright rounded-full animate-bounce" />
+              <span className="w-1.5 h-1.5 bg-fintech-bright rounded-full animate-bounce [animation-delay:0.2s]" />
+              <span className="w-1.5 h-1.5 bg-fintech-bright rounded-full animate-bounce [animation-delay:0.4s]" />
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* Interactive Quick-Action Buttons */}
+      <div className="px-4 py-2.5 bg-slate-50/90 dark:bg-slate-900/70 border-t border-slate-100 dark:border-slate-800 flex overflow-x-auto gap-2 scrollbar-none">
+        <button
+          onClick={handleExplainBreakdown}
+          className="whitespace-nowrap text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-fintech-bright hover:text-fintech-bright px-3 py-1.5 rounded-full font-medium transition shadow-xs flex items-center space-x-1"
+        >
+          <SparklesIcon className="w-3.5 h-3.5 text-amber-500" />
+          <span>Review this purchase</span>
+        </button>
+
+        <button
+          onClick={() => onOpenLimits?.()}
+          className="whitespace-nowrap text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-fintech-bright hover:text-fintech-bright px-3 py-1.5 rounded-full font-medium transition shadow-xs flex items-center space-x-1"
+        >
+          <SlidersIcon className="w-3.5 h-3.5 text-blue-500" />
+          <span>Set a spending limit</span>
+        </button>
+
+        <button
+          onClick={() => onTriggerApproval?.()}
+          className="whitespace-nowrap text-xs bg-fintech-navy hover:bg-black text-white px-3 py-1.5 rounded-full font-medium transition shadow-xs flex items-center space-x-1"
+        >
+          <LockClosedIcon className="w-3.5 h-3.5 text-cyan-300" />
+          <span>Go to approval</span>
+        </button>
+
+        <button
+          onClick={() => handleSendMessage("What are PayPal's official buyer protection terms?")}
+          className="whitespace-nowrap text-xs bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-fintech-bright hover:text-fintech-bright px-3 py-1.5 rounded-full font-medium transition shadow-xs flex items-center space-x-1"
+        >
+          <ShieldCheckIcon className="w-3.5 h-3.5 text-emerald-500" />
+          <span>Buyer Protection</span>
+        </button>
+      </div>
+
+      {/* Input box */}
+      <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900">
+        <div className="flex items-center space-x-2">
+          <input
+            type="text"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask Pali anything or request a deal..."
+            className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 text-xs sm:text-sm rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-fintech-bright transition"
+          />
+          <button
+            onClick={() => handleSendMessage()}
+            disabled={!inputText.trim()}
+            className="bg-fintech-bright hover:bg-fintech-vibrant text-white p-2.5 rounded-full disabled:opacity-40 transition focus:outline-none focus:ring-2 focus:ring-fintech-bright shadow-pill"
+          >
+            <SendIcon className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
