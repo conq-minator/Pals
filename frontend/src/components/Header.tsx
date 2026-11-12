@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { glyClient } from '../api/glyClient.js';
+import { glyClient, type ConnectionMode } from '../api/glyClient.js';
 import {
   PayPalMonogram,
   SunIcon,
@@ -17,7 +17,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleDarkMode,
   onNavClick
 }) => {
-  const [connectionMode, setConnectionMode] = useState<'live_ws' | 'live_rest' | 'simulated'>('simulated');
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('connecting');
 
   useEffect(() => {
     return glyClient.onConnectionChange((_connected, mode) => {
@@ -78,18 +78,22 @@ export const Header: React.FC<HeaderProps> = ({
               className={`w-2 h-2 rounded-full ${
                 connectionMode === 'live_ws'
                   ? 'bg-emerald-500 ring-4 ring-emerald-500/20 animate-pulse'
-                  : connectionMode === 'live_rest'
+                  : connectionMode === 'connecting'
                   ? 'bg-blue-500'
-                  : 'bg-amber-500'
+                  : connectionMode === 'simulated'
+                  ? 'bg-amber-500'
+                  : 'bg-rose-500'
               }`}
             />
             <span>
               GLY:{' '}
               {connectionMode === 'live_ws'
-                ? 'WebSocket Live'
-                : connectionMode === 'live_rest'
-                ? 'REST Live'
-                : 'Local Engine'}
+                ? 'Live'
+                : connectionMode === 'connecting'
+                ? 'Connecting…'
+                : connectionMode === 'simulated'
+                ? 'Simulated (not real)'
+                : 'Offline'}
             </span>
           </div>
 

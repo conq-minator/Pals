@@ -354,7 +354,8 @@ export class ARBProductVerifier {
   public static async fetchAndVerify(
     url: string,
     timeoutMs: number = 2500,
-    category?: string
+    category?: string,
+    unlocks?: { take(url: string): boolean }
   ): Promise<VerifiedProductPage | null> {
     // 1. Check cache first
     const cached = this.getCached(url);
@@ -389,8 +390,9 @@ export class ARBProductVerifier {
       // Fetch aborted or network blocked; handled gracefully
     }
 
-    // 3. Fallback: Bright Data Web Unlocker (if configured and direct fetch was blocked)
-    if (process.env.BRIGHTDATA_API_KEY) {
+    // 3. Fallback: Bright Data Web Unlocker, only when the caller grants one of its few unlocks
+    //    (a paid request; see scrape_budget.ts). No allowance means no paid call.
+    if (process.env.BRIGHTDATA_API_KEY && unlocks?.take(url)) {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);

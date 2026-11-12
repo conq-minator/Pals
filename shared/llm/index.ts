@@ -104,7 +104,7 @@ export class FetchLLMProvider implements ILLMProvider {
     this.apiKey = config?.apiKey || process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY || '';
     this.baseUrl = config?.baseUrl || process.env.LLM_BASE_URL;
     this.providerType = config?.providerType || (process.env.GEMINI_API_KEY ? 'gemini' : 'openai');
-    this.defaultModel = config?.model || (this.providerType === 'gemini' ? 'gemini-1.5-flash' : 'gpt-4o-mini');
+    this.defaultModel = config?.model || (this.providerType === 'gemini' ? (process.env.MODEL_ARB_FAST || 'gemini-3.5-flash') : 'gpt-4o-mini');
   }
 
   async generate(messages: LLMMessage[], options?: LLMGenerateOptions): Promise<LLMResponse> {

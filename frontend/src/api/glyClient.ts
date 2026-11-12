@@ -1,12 +1,10 @@
 import {
-  InboundChatMessageRequest,
   PurchaseProposal,
   UserApprovalToken,
   TaskLifecycleEvent,
-  PulsePaymentResponse,
-  UserFinancialPolicy,
-  DeterministicPolicyEngine
+  PulsePaymentResponse
 } from '../types/index.js';
+import { GlySimulator } from './glySimulator.js';
 
 export interface GlyChatResponse {
   replyText: string;
@@ -14,6 +12,8 @@ export interface GlyChatResponse {
   delegatedTaskId?: string;
   purchaseProposal?: PurchaseProposal;
   paymentResult?: PulsePaymentResponse;
+  /** PayPal page the buyer must open to approve the payment (sent by PULSE via GLY). */
+  paypalApprovalUrl?: string;
   references?: Array<{
     documentId: string;
     title: string;
@@ -26,54 +26,97 @@ export interface GlyChatResponse {
 
 export type MessageHandler = (response: GlyChatResponse) => void;
 export type TaskEventHandler = (event: TaskLifecycleEvent) => void;
-export type ConnectionChangeHandler = (connected: boolean, mode: 'live_ws' | 'live_rest' | 'simulated') => void;
+export type ConnectionMode = 'live_ws' | 'connecting' | 'offline' | 'simulated';
+export type ConnectionChangeHandler = (connected: boolean, mode: ConnectionMode) => void;
+export type PalHealth = Record<'GLY' | 'ARB' | 'DEFENDER' | 'PULSE', boolean>;
+
+// ---- What the PALS server (shared/orchestrator/server.ts -> GLY/GLY/chat/socket.ts) speaks ----
+type Money = { value: number; currency: string };
+type ServerCard =
+  | { kind: 'product_results'; taskId: string; title: string; products: { title: string; merchant: string; price: Money; url: string | null; highlights: string[] }[] }
+  | { kind: 'approval'; proposalId: string; title: string; merchant: string; listPrice: Money; finalPrice: Money; couponApplied: string | null; expiresAt: string }
+  | { kind: 'payment_receipt'; receiptId: string; amount: Money; merchant: string; status: 'captured' | 'declined' }
+  | { kind: 'transactions'; summary: string; rows: { date: string; description: string; amount: Money }[] }
+  | { kind: 'action_link'; title: string; label: string; url: string }
+  | { kind: 'error'; title: string; detail: string };
+type ServerEvent =
+  | { type: 'message'; text: string }
+  | { type: 'token'; streamId: string; text: string }
+  | { type: 'stream_end'; streamId: string; sources: { n: number; title: string; url: string }[] }
+  | { type: 'card'; card: ServerCard }
+  | { type: 'status'; text: string }
+  | { type: 'error'; text: string };
+
+const SIMULATE = import.meta.env.VITE_PALS_SIMULATE === 'true';
+const money = (m: Money) => `${m.currency} ${m.value.toFixed(2)}`;
+const domainOf = (merchant: string) => merchant.match(/\(via ([^)]+)\)/)?.[1] ?? merchant.toLowerCase();
 
 /**
- * GLY Client Interface
- * 
- * Boundary Enforcement:
- * - Connects EXCLUSIVELY to GLY via REST and WebSocket.
- * - Never communicates directly with ARB or PULSE.
- * - Never handles PayPal client secrets or raw PayPal checkout endpoints.
+ * GLY Client: the browser's only connection to PALS.
+ *
+ * Talks to the PALS server's WebSocket at /chat (GLY), which routes to ARB, DEFENDER and PULSE.
+ * The frontend never calls ARB, DEFENDER, PULSE or PayPal itself, and never holds PayPal secrets.
+ * Set VITE_PALS_SIMULATE=true only for offline UI work: every reply is then made up.
  */
 export class GlyClient {
-  private baseUrl: string;
   private wsUrl: string;
+  private healthUrl: string;
   private ws: WebSocket | null = null;
   private messageListeners: Set<MessageHandler> = new Set();
   private taskListeners: Set<TaskEventHandler> = new Set();
   private connectionListeners: Set<ConnectionChangeHandler> = new Set();
-  private isConnected = false;
-  private connectionMode: 'live_ws' | 'live_rest' | 'simulated' = 'simulated';
+  private healthListeners: Set<(h: PalHealth | null) => void> = new Set();
+  private connectionMode: ConnectionMode = 'connecting';
+  private streams = new Map<string, string>();
+  private outbox: string[] = [];
+  private retryMs = 1000;
+  private simulator: GlySimulator | null = null;
+  private health: PalHealth | null = null;
 
-  // Active user and conversation context
   private conversationId: string;
   private userId: string;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_GLY_BASE_URL || 'http://localhost:8000';
-    this.wsUrl = import.meta.env.VITE_GLY_WS_URL || this.baseUrl.replace(/^http/, 'ws') + '/ws';
-    this.conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-    this.userId = 'usr_pals_shopper_01';
+    // Same origin by default: the PALS server serves the built app, and Vite's dev server proxies
+    // /chat and /healthz to it. VITE_GLY_BASE_URL points somewhere else (e.g. http://localhost:8787).
+    const base = (import.meta.env.VITE_GLY_BASE_URL || window.location.origin).replace(/\/$/, '');
+    this.conversationId = this.loadId('pals_session', 'sess');
+    this.userId = this.loadId('pals_user', 'usr');
+    const wsBase = import.meta.env.VITE_GLY_WS_URL || base.replace(/^http/, 'ws') + '/chat';
+    this.wsUrl = `${wsBase}?sessionId=${encodeURIComponent(this.conversationId)}&userId=${encodeURIComponent(this.userId)}`;
+    this.healthUrl = `${base}/healthz`;
 
-    this.initWebSocket();
+    if (SIMULATE) {
+      this.simulator = new GlySimulator({
+        conversationId: this.conversationId,
+        emitMessage: (r) => this.emitMessage(r),
+        emitTask: (e) => this.emitTask(e)
+      });
+      this.connectionMode = 'simulated';
+    } else {
+      this.connect();
+      void this.refreshHealth();
+      setInterval(() => void this.refreshHealth(), 15_000);
+    }
   }
 
-  public getConversationId(): string {
-    return this.conversationId;
+  /** Keeps the same session across reloads, so PayPal's return lands in the same chat. */
+  private loadId(key: string, prefix: string): string {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) return saved;
+    } catch { /* storage blocked */ }
+    const id = `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    try { localStorage.setItem(key, id); } catch { /* storage blocked */ }
+    return id;
   }
 
-  public getUserId(): string {
-    return this.userId;
-  }
-
-  public setUserId(newUserId: string): void {
-    this.userId = newUserId;
-  }
-
-  public getConnectionMode(): 'live_ws' | 'live_rest' | 'simulated' {
-    return this.connectionMode;
-  }
+  public getConversationId(): string { return this.conversationId; }
+  public getUserId(): string { return this.userId; }
+  public setUserId(newUserId: string): void { this.userId = newUserId; }
+  public getConnectionMode(): ConnectionMode { return this.connectionMode; }
+  public isSimulated(): boolean { return SIMULATE; }
+  public getHealth(): PalHealth | null { return this.health; }
 
   public onMessage(handler: MessageHandler): () => void {
     this.messageListeners.add(handler);
@@ -87,115 +130,236 @@ export class GlyClient {
 
   public onConnectionChange(handler: ConnectionChangeHandler): () => void {
     this.connectionListeners.add(handler);
-    handler(this.isConnected, this.connectionMode);
+    handler(this.connectionMode === 'live_ws' || this.connectionMode === 'simulated', this.connectionMode);
     return () => this.connectionListeners.delete(handler);
   }
 
-  private notifyConnection(connected: boolean, mode: 'live_ws' | 'live_rest' | 'simulated') {
-    this.isConnected = connected;
+  public onHealth(handler: (h: PalHealth | null) => void): () => void {
+    this.healthListeners.add(handler);
+    handler(this.health);
+    return () => this.healthListeners.delete(handler);
+  }
+
+  private emitMessage(r: GlyChatResponse) {
+    for (const l of this.messageListeners) l(r);
+  }
+
+  private emitTask(e: TaskLifecycleEvent) {
+    for (const l of this.taskListeners) l(e);
+  }
+
+  private setMode(mode: ConnectionMode) {
     this.connectionMode = mode;
-    for (const listener of this.connectionListeners) {
-      listener(connected, mode);
-    }
+    for (const l of this.connectionListeners) l(mode === 'live_ws', mode);
   }
 
-  /**
-   * Initializes WebSocket connection to GLY Gateway
-   */
-  private initWebSocket(): void {
+  private async refreshHealth() {
     try {
-      this.ws = new WebSocket(this.wsUrl);
-
-      this.ws.onopen = () => {
-        this.notifyConnection(true, 'live_ws');
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          // Handle chat replies
-          if (data.event === 'chat:reply' || data.replyText || data.type === 'message' || data.type === 'status') {
-            const chatRes = data.payload || {
-              replyText: data.text || data.replyText || '',
-              intent: data.intent || (data.type === 'status' ? 'status' : 'chat')
-            };
-            for (const listener of this.messageListeners) {
-              listener(chatRes);
-            }
-          }
-          // Handle asynchronous background task events (e.g. ARB research progress)
-          if (data.event === 'task:lifecycle' || data.targetPal) {
-            const taskEvt = data.payload || data;
-            for (const listener of this.taskListeners) {
-              listener(taskEvt);
-            }
-          }
-        } catch {
-          // Non-JSON message ignored
-        }
-      };
-
-      this.ws.onerror = () => {
-        // Fallback to REST or Simulation
-        this.checkRestHealth();
-      };
-
-      this.ws.onclose = () => {
-        this.checkRestHealth();
-      };
+      const res = await fetch(this.healthUrl, { signal: AbortSignal.timeout(3000) });
+      const body = await res.json();
+      this.health = body?.pals ?? null;
     } catch {
-      this.checkRestHealth();
+      this.health = null;
     }
+    for (const l of this.healthListeners) l(this.health);
   }
 
-  /**
-   * Checks if GLY REST gateway is available
-   */
-  private async checkRestHealth(): Promise<void> {
+  // ---------------------------------------------------------------------------------------------
+  // WebSocket
+  // ---------------------------------------------------------------------------------------------
+
+  private connect(): void {
+    this.setMode('connecting');
+    let ws: WebSocket;
     try {
-      const res = await fetch(`${this.baseUrl}/health`, { method: 'GET', signal: AbortSignal.timeout(1500) });
-      if (res.ok) {
-        this.notifyConnection(true, 'live_rest');
+      ws = new WebSocket(this.wsUrl);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    this.ws = ws;
+    ws.onopen = () => {
+      this.retryMs = 1000;
+      this.setMode('live_ws');
+      for (const frame of this.outbox.splice(0)) ws.send(frame);
+    };
+    ws.onmessage = (event) => {
+      try {
+        this.handleServerEvent(JSON.parse(event.data) as ServerEvent);
+      } catch {
+        // ignore malformed frames
+      }
+    };
+    ws.onclose = () => {
+      this.ws = null;
+      this.scheduleReconnect();
+    };
+  }
+
+  private scheduleReconnect() {
+    this.setMode('offline');
+    setTimeout(() => this.connect(), this.retryMs);
+    this.retryMs = Math.min(this.retryMs * 2, 15_000);
+  }
+
+  private send(frame: object) {
+    const raw = JSON.stringify(frame);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(raw);
+    else this.outbox.push(raw);
+  }
+
+  private taskEvent(status: TaskLifecycleEvent['status'], statusMessage: string, targetPal: TaskLifecycleEvent['targetPal'] = 'GLY'): TaskLifecycleEvent {
+    return {
+      eventId: `evt_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+      taskId: 'live',
+      conversationId: this.conversationId,
+      targetPal,
+      status,
+      statusMessage,
+      emittedAt: new Date().toISOString()
+    };
+  }
+
+  /** Turns what GLY sends into what the UI components already understand. */
+  private handleServerEvent(e: ServerEvent) {
+    switch (e.type) {
+      case 'message':
+        this.emitMessage({ replyText: e.text, intent: 'chat' });
+        return;
+      case 'error':
+        this.emitMessage({ replyText: e.text, intent: 'INTENT_ERROR' });
+        return;
+      case 'status':
+        this.emitTask(this.taskEvent('RESEARCHING', e.text));
+        return;
+      case 'token':
+        this.streams.set(e.streamId, (this.streams.get(e.streamId) ?? '') + e.text);
+        return;
+      case 'stream_end': {
+        const text = this.streams.get(e.streamId) ?? '';
+        this.streams.delete(e.streamId);
+        this.emitMessage({
+          replyText: text,
+          intent: 'INTENT_PAYPAL_GUIDANCE',
+          references: e.sources.map((s) => ({
+            documentId: `src_${s.n}`, title: s.title, url: s.url, contentSnippet: '', score: 1, section: `[${s.n}]`
+          }))
+        });
         return;
       }
-    } catch {
-      // Backend not running on this port, switch to simulated GLY
+      case 'card':
+        this.handleCard(e.card);
+        return;
     }
-    this.notifyConnection(false, 'simulated');
   }
 
+  private handleCard(card: ServerCard) {
+    switch (card.kind) {
+      case 'product_results': {
+        const lines = card.products.map((p, i) =>
+          `${i + 1}. ${p.title}\n   ${money(p.price)} at ${p.merchant}${p.highlights.length ? ` · ${p.highlights.join(' · ')}` : ''}${p.url ? `\n   ${p.url}` : ''}`
+        );
+        this.emitTask(this.taskEvent('COMPLETED', `ARB found ${card.products.length} options`, 'ARB'));
+        this.emitMessage({
+          replyText: `${card.title}\n\n${lines.join('\n')}\n\nSay "get the first one ready" (or name one) and I'll prepare an offer.`,
+          intent: 'INTENT_SHOPPING_RESEARCH'
+        });
+        return;
+      }
+      case 'approval': {
+        // GLY's approval card carries list price, final (landed) price and coupon; ARB's full
+        // breakdown stays server-side, so the difference is shown as the discount.
+        const list = card.listPrice.value;
+        const final = card.finalPrice.value;
+        const proposal: PurchaseProposal = {
+          proposalId: card.proposalId,
+          taskId: card.proposalId,
+          merchantName: card.merchant,
+          merchantDomain: domainOf(card.merchant),
+          checkoutUrl: `https://${domainOf(card.merchant)}`,
+          productTitle: card.title,
+          sku: card.proposalId,
+          pricingBreakdown: {
+            basePrice: list,
+            discountApplied: Math.max(0, Math.round((list - final) * 100) / 100),
+            shippingFee: 0,
+            taxes: 0,
+            totalPayable: final,
+            currency: card.finalPrice.currency
+          },
+          negotiationLog: {
+            attempted: !!card.couponApplied,
+            successful: !!card.couponApplied,
+            savingsAmount: Math.max(0, Math.round((list - final) * 100) / 100),
+            description: card.couponApplied ? `Coupon ${card.couponApplied} applied by ARB.` : 'No coupon available.'
+          },
+          merchantTrustScore: 0,
+          expiresAt: card.expiresAt
+        } as PurchaseProposal;
+        this.emitMessage({
+          replyText: `Offer ready: ${card.title} from ${card.merchant} for ${money(card.finalPrice)}. Review it in the authorization card and approve when you're ready.`,
+          intent: 'INTENT_PURCHASE_CONFIRMATION',
+          purchaseProposal: proposal
+        });
+        return;
+      }
+      case 'action_link':
+        this.emitMessage({
+          replyText: `${card.title}: open PayPal to finish paying.\n${card.url}`,
+          intent: 'INTENT_PAYPAL_APPROVAL_REQUIRED',
+          paypalApprovalUrl: card.url
+        });
+        return;
+      case 'payment_receipt': {
+        const captured = card.status === 'captured';
+        const paymentResult: PulsePaymentResponse = {
+          paymentRequestId: card.receiptId,
+          paypalOrderId: card.receiptId,
+          status: captured ? 'COMPLETED' : 'FAILED',
+          finalAmountCaptured: captured ? card.amount.value : 0,
+          currency: card.amount.currency,
+          receiptNumber: card.receiptId,
+          transactionTimestamp: new Date().toISOString()
+        };
+        this.emitTask(this.taskEvent(captured ? 'COMPLETED' : 'FAILED', captured ? `Paid ${money(card.amount)}` : 'Payment declined', 'PULSE'));
+        this.emitMessage({
+          replyText: captured
+            ? `Payment complete: ${money(card.amount)} to ${card.merchant}. Receipt ${card.receiptId}.`
+            : `Payment to ${card.merchant} was declined. Nothing was charged.`,
+          intent: captured ? 'INTENT_PAYMENT_COMPLETED' : 'INTENT_PAYMENT_FAILED',
+          paymentResult
+        });
+        return;
+      }
+      case 'transactions': {
+        const rows = card.rows.map((r) => `• ${r.date.slice(0, 10)}  ${r.description}  ${money(r.amount)}`);
+        this.emitMessage({ replyText: `${card.summary}${rows.length ? `\n\n${rows.join('\n')}` : ''}`, intent: 'INTENT_TRANSACTIONS' });
+        return;
+      }
+      case 'error':
+        this.emitMessage({ replyText: `${card.title}: ${card.detail}`, intent: 'INTENT_PAYMENT_FAILED' });
+        return;
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Commands
+  // ---------------------------------------------------------------------------------------------
+
   /**
-   * Cryptographically signs a purchase proposal to produce a canonical UserApprovalToken
-   * Invariant: Final payable amount <= authorizedMaxAmount
+   * Builds the approval record the card displays. It is NOT a security token and is never sent:
+   * the server issues its own approval token when GLY forwards the approval to DEFENDER and PULSE.
    */
-  public async generateUserApprovalToken(
-    proposal: PurchaseProposal,
-    userId = this.userId
-  ): Promise<UserApprovalToken> {
+  public async generateUserApprovalToken(proposal: PurchaseProposal, userId = this.userId): Promise<UserApprovalToken> {
     const issuedAt = new Date().toISOString();
-    // 15 minute expiration per security contract
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const expiresAt = proposal.expiresAt || new Date(Date.now() + 15 * 60 * 1000).toISOString();
     const tokenIdentifier = `apprv_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
-
-    const signaturePayload = [
-      tokenIdentifier,
-      proposal.proposalId,
-      userId,
-      proposal.pricingBreakdown.totalPayable.toFixed(2),
-      proposal.pricingBreakdown.currency,
-      proposal.merchantDomain,
-      issuedAt,
-      expiresAt
-    ].join(':');
-
-    // SHA-256 Web Crypto Signature
-    const encoder = new TextEncoder();
-    const data = encoder.encode(signaturePayload);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const userSignature = 'sig_' + hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-    const token: UserApprovalToken = {
+    const digest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode([tokenIdentifier, proposal.proposalId, userId, proposal.pricingBreakdown.totalPayable.toFixed(2), proposal.pricingBreakdown.currency].join(':'))
+    );
+    const userSignature = 'ref_' + Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return {
       approvalToken: tokenIdentifier,
       proposalId: proposal.proposalId,
       userId,
@@ -206,318 +370,37 @@ export class GlyClient {
       issuedAt,
       expiresAt
     };
+  }
 
-    return token;
+  /** Sends a chat message to GLY. Replies arrive through onMessage. */
+  public async sendChatMessage(content: string): Promise<void> {
+    if (this.simulator) {
+      await this.simulator.simulateGlyResponse({
+        conversationId: this.conversationId,
+        userId: this.userId,
+        messageId: `msg_${Date.now().toString(36)}`,
+        content,
+        timestamp: new Date().toISOString(),
+        clientContext: { deviceType: 'desktop', timezone: 'UTC', locale: navigator.language || 'en-US' }
+      });
+      return;
+    }
+    if (this.connectionMode !== 'live_ws') {
+      this.emitMessage({ replyText: "I can't reach the PALS server right now. Your message will be sent as soon as it reconnects.", intent: 'INTENT_ERROR' });
+    }
+    this.send({ type: 'user_message', text: content });
   }
 
   /**
-   * Sends an inbound chat message exclusively to GLY
+   * Approves (or rejects) an offer. GLY forwards it to DEFENDER, then PULSE creates the PayPal
+   * order; the "open PayPal" link and later the receipt arrive through onMessage.
    */
-  public async sendChatMessage(content: string): Promise<GlyChatResponse> {
-    const request: InboundChatMessageRequest = {
-      conversationId: this.conversationId,
-      userId: this.userId,
-      messageId: `msg_${Date.now().toString(36)}`,
-      content,
-      timestamp: new Date().toISOString(),
-      clientContext: {
-        deviceType: 'desktop',
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        locale: navigator.language || 'en-US'
-      }
-    };
-
-    // 1. Try WebSocket if connected
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ event: 'chat:message', payload: request }));
-    }
-
-    // 2. Try REST POST /api/chat
-    if (this.connectionMode === 'live_rest') {
-      try {
-        const response = await fetch(`${this.baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(request)
-        });
-        if (response.ok) {
-          const data: GlyChatResponse = await response.json();
-          for (const listener of this.messageListeners) {
-            listener(data);
-          }
-          return data;
-        }
-      } catch {
-        // Fall back to simulation
-      }
-    }
-
-    // 3. Fallback: High-Fidelity Local GLY Knowledge & Intent Engine
-    return this.simulateGlyResponse(request);
-  }
-
-  /**
-   * Submits a cryptographically signed approval token to GLY for payment execution
-   * GLY routes internally to DEFENDER and PULSE; frontend never calls them directly.
-   */
-  public async submitApproval(
-    approvalToken: UserApprovalToken,
-    proposal: PurchaseProposal
-  ): Promise<GlyChatResponse> {
-    // 1. Try REST POST /api/approve
-    if (this.connectionMode === 'live_rest' || this.connectionMode === 'live_ws') {
-      try {
-        const response = await fetch(`${this.baseUrl}/api/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            approvalToken,
-            proposal,
-            conversationId: this.conversationId
-          })
-        });
-        if (response.ok) {
-          const data: GlyChatResponse = await response.json();
-          for (const listener of this.messageListeners) {
-            listener(data);
-          }
-          return data;
-        }
-      } catch {
-        // Fallback to simulation
-      }
-    }
-
-    // 2. Fallback: Local GLY Execution Simulation
-    return this.simulateApprovalExecution(approvalToken, proposal);
-  }
-
-  /**
-   * Simulates GLY conversational logic identical to GLY/index.ts
-   */
-  private async simulateGlyResponse(request: InboundChatMessageRequest): Promise<GlyChatResponse> {
-    const lower = request.content.toLowerCase();
-
-    // PayPal Knowledge Guidance (RAG)
-    if (lower.includes('fee') || lower.includes('buyer protection') || lower.includes('dispute') || lower.includes('hold') || lower.includes('policy')) {
-      const isFee = lower.includes('fee');
-      const isDispute = lower.includes('dispute') || lower.includes('hold');
-
-      const response: GlyChatResponse = {
-        replyText: isFee
-          ? "According to official PayPal documentation, standard domestic consumer purchases have 0% transaction fees for buyers. For cross-border transactions, currency conversion spreads typically range between 3.0% and 4.0% above wholesale exchange rates."
-          : isDispute
-          ? "PayPal Buyer Protection covers eligible purchases if an item doesn't arrive or doesn't match the seller's description. You have 180 days from the payment date to open a dispute in the Resolution Center."
-          : "PayPal Buyer Protection gives you peace of mind with 100% protection against unauthorized payments sent from your account, and end-to-end cryptographic encryption.",
-        intent: 'INTENT_PAYPAL_GUIDANCE',
-        references: [
-          {
-            documentId: isFee ? 'PAYPAL_FEES_POLICY' : 'BUYER_PROTECTION_OVERVIEW',
-            title: isFee ? 'PayPal Consumer Fee Schedule' : 'PayPal Buyer Protection Guarantees',
-            url: isFee ? 'docs/knowledge/paypal/fees.md' : 'docs/knowledge/paypal/buyer_protection.md',
-            contentSnippet: isFee
-              ? 'No transaction fees for eligible purchases funded by bank account or PayPal balance. International conversion spreads apply.'
-              : 'Reimbursement coverage for eligible goods not received or significantly not as described.',
-            score: 0.96,
-            section: 'General Terms'
-          }
-        ]
-      };
-
-      // Notify listeners asynchronously to mirror network tick
-      setTimeout(() => {
-        for (const listener of this.messageListeners) {
-          listener(response);
-        }
-      }, 350);
-
-      return response;
-    }
-
-    // Shopping / Research Intent -> Triggers ARB background task simulation
-    if (lower.includes('buy') || lower.includes('find') || lower.includes('laptop') || lower.includes('macbook') || lower.includes('price') || lower.includes('deal') || lower.includes('recommend')) {
-      const taskId = `tsk_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
-      const budgetMatch = request.content.match(/under\s+(?:₹|\$|rs\.?|inr\s*)?([0-9,]+)/i);
-      const budget = budgetMatch ? parseInt(budgetMatch[1].replace(/,/g, ''), 10) : 1299;
-      const currency = lower.includes('₹') || lower.includes('inr') ? 'INR' : 'USD';
-
-      // 1. Immediate Non-Blocking GLY Acknowledgment
-      const initialReply: GlyChatResponse = {
-        replyText: `I've dispatched ARB (ArbitrationPal) to search trusted merchants for top deals under ${currency === 'INR' ? '₹' : '$'}${budget.toLocaleString()}. You can keep chatting with me while ARB gathers verified listings! 🛍️`,
-        intent: 'INTENT_SHOPPING_RESEARCH',
-        delegatedTaskId: taskId
-      };
-
-      setTimeout(() => {
-        for (const listener of this.messageListeners) {
-          listener(initialReply);
-        }
-      }, 300);
-
-      // 2. Stream out-of-band task lifecycle event (ARB researching)
-      setTimeout(() => {
-        const researchEvent: TaskLifecycleEvent = {
-          eventId: `evt_${Date.now()}`,
-          taskId,
-          conversationId: request.conversationId,
-          targetPal: 'ARB',
-          status: 'RESEARCHING',
-          progressPercent: 45,
-          statusMessage: 'ARB: Scraping authorized merchant catalogs & comparing shipping fees...',
-          emittedAt: new Date().toISOString()
-        };
-        for (const listener of this.taskListeners) {
-          listener(researchEvent);
-        }
-      }, 1200);
-
-      // 3. Task Completion with PurchaseProposal
-      setTimeout(() => {
-        const proposal: PurchaseProposal = {
-          proposalId: `prop_${Date.now().toString(36)}`,
-          taskId,
-          merchantName: 'TechDirect Electronics',
-          merchantDomain: 'techdirect.store',
-          checkoutUrl: 'https://techdirect.store/checkout/macbook-air-m3',
-          productTitle: 'Apple MacBook Air 13.6" (M3 Chip, 16GB RAM, 512GB SSD)',
-          sku: 'APL-MBA13-M3-16-512',
-          variant: {
-            color: 'Midnight Blue',
-            specs: { RAM: '16GB', Storage: '512GB', Chip: 'Apple M3' }
-          },
-          pricingBreakdown: {
-            basePrice: currency === 'INR' ? 114900 : 1199.00,
-            discountApplied: currency === 'INR' ? 5000 : 50.00,
-            shippingFee: 0,
-            taxes: currency === 'INR' ? 19782 : 91.92,
-            totalPayable: currency === 'INR' ? 129682 : 1240.92,
-            currency
-          },
-          negotiationLog: {
-            attempted: true,
-            successful: true,
-            savingsAmount: currency === 'INR' ? 5000 : 50.00,
-            description: 'ARB automatically applied merchant coupon WELCOME50 and free express courier delivery.'
-          },
-          merchantTrustScore: 94,
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
-        };
-
-        const completedTask: TaskLifecycleEvent = {
-          eventId: `evt_done_${Date.now()}`,
-          taskId,
-          conversationId: request.conversationId,
-          targetPal: 'ARB',
-          status: 'COMPLETED',
-          progressPercent: 100,
-          statusMessage: 'ARB completed market arbitration. Optimal purchase proposal ready!',
-          resultPayload: proposal as unknown as Record<string, unknown>,
-          emittedAt: new Date().toISOString()
-        };
-
-        for (const listener of this.taskListeners) {
-          listener(completedTask);
-        }
-
-        const proposalReply: GlyChatResponse = {
-          replyText: `ARB found the best price for you! Here is the verified purchase proposal from TechDirect Electronics. I've prepared your Purchase Authorization Card below — please inspect the itemized fees and confirm your digital signature. 🔒`,
-          intent: 'INTENT_PURCHASE_CONFIRMATION',
-          purchaseProposal: proposal
-        };
-
-        for (const listener of this.messageListeners) {
-          listener(proposalReply);
-        }
-      }, 2600);
-
-      return initialReply;
-    }
-
-    // General Greeting & Capabilities
-    const defaultReply: GlyChatResponse = {
-      replyText: "Hi! I'm GLY, your friendly shopping & payment guide. I can help you search the best verified deals across merchants, review PayPal buyer protections and fee rules, or configure your personal spending safety limits. How can I help you today? ✨",
-      intent: 'INTENT_GENERAL_DIALOGUE'
-    };
-
-    setTimeout(() => {
-      for (const listener of this.messageListeners) {
-        listener(defaultReply);
-      }
-    }, 200);
-
-    return defaultReply;
-  }
-
-  /**
-   * Simulates payment authorization, pre-flight policy evaluation, DEFENDER audit, and PULSE execution
-   */
-  private async simulateApprovalExecution(
-    approvalToken: UserApprovalToken,
-    proposal: PurchaseProposal
-  ): Promise<GlyChatResponse> {
-    // 1. Deterministic Token Validation
-    const validation = DeterministicPolicyEngine.validateApprovalTokenForPayment(
-      approvalToken,
-      proposal.pricingBreakdown.totalPayable,
-      proposal.pricingBreakdown.currency,
-      proposal.merchantDomain
-    );
-
-    if (!validation.valid) {
-      const failResponse: GlyChatResponse = {
-        replyText: `Policy engine validation failed: ${validation.reason}. Approval rejected.`,
-        intent: 'INTENT_PAYMENT_BLOCKED'
-      };
-      for (const listener of this.messageListeners) {
-        listener(failResponse);
-      }
-      return failResponse;
-    }
-
-    // 2. Emulate DEFENDER & PULSE via GLY
-    const paymentResult: PulsePaymentResponse = {
-      paymentRequestId: `payreq_${Date.now().toString(36)}`,
-      paypalOrderId: `PAYID-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      paypalCaptureId: `CAP-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      status: 'COMPLETED',
-      finalAmountCaptured: proposal.pricingBreakdown.totalPayable,
-      currency: proposal.pricingBreakdown.currency,
-      receiptNumber: `RCPT-${Date.now().toString().slice(-6)}`,
-      transactionTimestamp: new Date().toISOString(),
-      paypalFee: Number((proposal.pricingBreakdown.totalPayable * 0.029 + 0.30).toFixed(2))
-    };
-
-    const successResponse: GlyChatResponse = {
-      replyText: `Payment successfully captured via PayPal! 🎉 Receipt #${paymentResult.receiptNumber}. PayPal Order ID: ${paymentResult.paypalOrderId}. Your purchase from ${proposal.merchantName} is secured under PayPal Buyer Protection!`,
-      intent: 'INTENT_PAYMENT_COMPLETED',
-      paymentResult
-    };
-
-    // Emit task completion event
-    const paymentTask: TaskLifecycleEvent = {
-      eventId: `evt_pay_${Date.now()}`,
-      taskId: proposal.taskId,
-      conversationId: this.conversationId,
-      targetPal: 'PULSE',
-      status: 'COMPLETED',
-      progressPercent: 100,
-      statusMessage: `Payment captured: ${paymentResult.finalAmountCaptured} ${paymentResult.currency}`,
-      resultPayload: paymentResult as unknown as Record<string, unknown>,
-      emittedAt: new Date().toISOString()
-    };
-
-    for (const listener of this.taskListeners) {
-      listener(paymentTask);
-    }
-
-    for (const listener of this.messageListeners) {
-      listener(successResponse);
-    }
-
-    return successResponse;
+  public async submitApproval(approvalToken: UserApprovalToken, proposal: PurchaseProposal, decision: 'approve' | 'reject' = 'approve'): Promise<GlyChatResponse> {
+    if (this.simulator) return this.simulator.simulateApprovalExecution(approvalToken, proposal);
+    this.send({ type: 'approval', proposalId: proposal.proposalId, decision });
+    return { replyText: 'Approval sent. DEFENDER is checking it before PayPal.', intent: 'INTENT_APPROVAL_SENT' };
   }
 }
 
 // Singleton GLY client instance
 export const glyClient = new GlyClient();
-

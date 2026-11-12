@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   PurchaseProposal,
   UserApprovalToken,
@@ -31,6 +31,40 @@ export const PurchaseAuthCard: React.FC<PurchaseAuthCardProps> = ({
   const [approvalToken, setApprovalToken] = useState<UserApprovalToken | null>(null);
   const [paymentResult, setPaymentResult] = useState<PulsePaymentResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [paypalUrl, setPaypalUrl] = useState<string | null>(null);
+  const [awaiting, setAwaiting] = useState<string | null>(null);
+
+  // A new offer resets the card.
+  useEffect(() => {
+    setApprovalToken(null);
+    setPaymentResult(null);
+    setErrorMessage(null);
+    setPaypalUrl(null);
+    setAwaiting(null);
+  }, [proposal?.proposalId]);
+
+  // The real flow is asynchronous: after Approve, DEFENDER checks it, PULSE creates the PayPal
+  // order (link arrives), the buyer pays on PayPal, and the receipt arrives later.
+  useEffect(() => {
+    return glyClient.onMessage((res) => {
+      if (!awaiting) return;
+      if (res.paypalApprovalUrl) {
+        setPaypalUrl(res.paypalApprovalUrl);
+        setAwaiting('Waiting for you to approve the payment on PayPal…');
+      } else if (res.paymentResult) {
+        setAwaiting(null);
+        if (res.paymentResult.status === 'COMPLETED') {
+          setPaymentResult(res.paymentResult);
+          onPaymentComplete?.(res.paymentResult);
+        } else {
+          setErrorMessage(res.replyText);
+        }
+      } else if (res.intent === 'INTENT_PAYMENT_FAILED' || res.intent === 'INTENT_ERROR') {
+        setAwaiting(null);
+        setErrorMessage(res.replyText);
+      }
+    });
+  }, [awaiting, onPaymentComplete]);
 
   if (!proposal) {
     return (
@@ -73,6 +107,7 @@ export const PurchaseAuthCard: React.FC<PurchaseAuthCardProps> = ({
 
       // Step 2: Transmit exclusively to GLY Gateway (never direct to PULSE or ARB)
       const res = await glyClient.submitApproval(token, proposal);
+      if (res.intent === 'INTENT_APPROVAL_SENT') setAwaiting('DEFENDER is checking this payment…');
 
       if (res.paymentResult && res.paymentResult.status === 'COMPLETED') {
         setPaymentResult(res.paymentResult);
@@ -215,6 +250,25 @@ export const PurchaseAuthCard: React.FC<PurchaseAuthCardProps> = ({
           </div>
         )}
 
+        {awaiting && !paymentResult && (
+          <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-2xl p-4 text-xs text-blue-900 dark:text-blue-100 space-y-3">
+            <div className="flex items-center space-x-2">
+              <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <span>{awaiting}</span>
+            </div>
+            {paypalUrl && (
+              <a
+                href={paypalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center bg-[#FFC439] hover:bg-[#f2b72f] text-slate-900 font-extrabold py-3 rounded-full text-sm"
+              >
+                Pay with PayPal
+              </a>
+            )}
+          </div>
+        )}
+
         {/* Status Confirmation or Action Buttons */}
         {paymentResult && paymentResult.status === 'COMPLETED' ? (
           <div className="bg-gradient-to-r from-emerald-50 to-emerald-100/40 dark:from-emerald-950/40 dark:to-emerald-900/30 border border-emerald-300 dark:border-emerald-800/80 rounded-2xl p-6 text-emerald-950 dark:text-emerald-100 space-y-3 shadow-xs">
@@ -237,7 +291,7 @@ export const PurchaseAuthCard: React.FC<PurchaseAuthCardProps> = ({
             {/* Primary Dark Pill Button */}
             <button
               onClick={handleAuthorize}
-              disabled={isSigning}
+              disabled={isSigning || !!awaiting}
               className="w-full bg-slate-950 hover:bg-black text-white font-extrabold py-4 px-6 rounded-full shadow-pill transition duration-200 flex items-center justify-center space-x-2.5 text-sm disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-fintech-bright"
             >
               {isSigning ? (

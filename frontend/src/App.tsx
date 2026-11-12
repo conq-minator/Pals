@@ -127,7 +127,7 @@ export const App: React.FC = () => {
   });
 
   // Active purchase proposal currently loaded
-  const [activeProposal, setActiveProposal] = useState<PurchaseProposal | null>(SAMPLE_PROPOSALS.macbook);
+  const [activeProposal, setActiveProposal] = useState<PurchaseProposal | null>(glyClient.isSimulated() ? SAMPLE_PROPOSALS.macbook : null);
   const [isApproved, setIsApproved] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -255,7 +255,8 @@ export const App: React.FC = () => {
 
       {/* INNER PAGES WORKSPACE */}
       <main id="workspace" className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 -mt-14 pb-16 space-y-8 relative z-20">
-        {/* Deal Selector Bar */}
+        {/* Deal Selector Bar: made-up sample deals, only in simulated mode (VITE_PALS_SIMULATE=true) */}
+        {glyClient.isSimulated() && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 shadow-card flex flex-wrap items-center justify-between gap-3 card-lift">
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="font-extrabold text-slate-900 dark:text-slate-100 mr-1 flex items-center space-x-1.5">
@@ -308,6 +309,7 @@ export const App: React.FC = () => {
             <span>Deterministic Enforcement</span>
           </div>
         </div>
+        )}
 
         {/* Policy Invariant Warning Banner if proposal violates deterministic constraints */}
         {activeProposal && !policyCheck.valid && (

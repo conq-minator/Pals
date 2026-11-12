@@ -4,6 +4,7 @@ import { ARBTrustScorer } from '../scoring/trust_scorer.js';
 import { ARBSpecNormalizer } from '../extractors/spec_normalizer.js';
 import { ARBQueryMatcher } from '../extractors/query_matcher.js';
 import { ARBProductVerifier } from './product_verifier.js';
+import { ARBScrapeBudget, UnlockAllowance } from './scrape_budget.js';
 import { ARBCanonicalIdentity } from '../extractors/canonical_product.js';
 import { ARBLandedCostCalculator } from '../pricing/landed_cost.js';
 
@@ -40,43 +41,64 @@ export class ARBWebCrawler {
     task: { query: string; region: 'IN' | 'US' },
     timeoutMs: number
   ): Promise<SearchCandidate[]> {
-    // 0. Bright Data Web Unlocker / SERP (https://brightdata.com)
-    const brightDataKey = process.env.BRIGHTDATA_API_KEY;
-    if (brightDataKey) {
-      const candidates = await this.discoverWithBrightData(task, brightDataKey, timeoutMs);
-      if (candidates.length > 0) return candidates;
-    }
+    // Same query in the last hour (a re-quote, a repeated question): reuse it, pay nothing.
+    const cacheKey = `${task.region}:${task.query.toLowerCase()}`;
+    const cached = ARBScrapeBudget.getCachedSearch<SearchCandidate[]>(cacheKey);
+    if (cached) return cached;
 
-    // 1. Brave Search API (free tier at https://brave.com/search/api/)
-    const braveKey = process.env.BRAVE_SEARCH_API_KEY;
-    if (braveKey) {
-      const candidates = await this.discoverWithBrave(task, braveKey, timeoutMs);
-      if (candidates.length > 0) return candidates;
-    }
+    const found = await this.discoverUncached(task, timeoutMs);
+    if (found.length > 0) ARBScrapeBudget.setCachedSearch(cacheKey, found);
+    return found;
+  }
 
-    // 2. Serper Google Search (free tier at https://serper.dev)
+  /**
+   * Tries each configured search source in turn, cheapest structured API first. Bright Data's
+   * Google page is the last paid resort (it costs an unlocker request); DuckDuckGo is free.
+   * Every paid call goes through ARBScrapeBudget, which enforces hard per-process caps.
+   */
+  private static async discoverUncached(
+    task: { query: string; region: 'IN' | 'US' },
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    const what = `search "${task.query.slice(0, 60)}" (${task.region})`;
+
+    // 1. Serper Google Search (https://serper.dev): structured JSON, cheapest per query
     const serperKey = process.env.SERPER_API_KEY || (process.env.SERP_API_KEY && !process.env.SERPAPI_API_KEY ? process.env.SERP_API_KEY : undefined);
-    if (serperKey) {
+    if (serperKey && ARBScrapeBudget.tryUse('serper', what)) {
       const candidates = await this.discoverWithSerper(task, serperKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 2. Brave Search API (https://brave.com/search/api/)
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+    if (braveKey && ARBScrapeBudget.tryUse('brave', what)) {
+      const candidates = await this.discoverWithBrave(task, braveKey, timeoutMs);
       if (candidates.length > 0) return candidates;
     }
 
     // 3. SerpAPI (https://serpapi.com)
     const serpApiKey = process.env.SERPAPI_API_KEY;
-    if (serpApiKey) {
+    if (serpApiKey && ARBScrapeBudget.tryUse('serpapi', what)) {
       const candidates = await this.discoverWithSerpApi(task, serpApiKey, timeoutMs);
       if (candidates.length > 0) return candidates;
     }
 
-    // 4. Google Custom Search JSON API (https://developers.google.com/custom-search/v1/overview)
+    // 4. Google Custom Search JSON API
     const googleKey = process.env.GOOGLE_SEARCH_API_KEY;
     const googleCx = process.env.GOOGLE_SEARCH_CX;
-    if (googleKey && googleCx) {
+    if (googleKey && googleCx && ARBScrapeBudget.tryUse('google', what)) {
       const candidates = await this.discoverWithGoogle(task, googleKey, googleCx, timeoutMs);
       if (candidates.length > 0) return candidates;
     }
 
-    // 5. DuckDuckGo HTML fallback
+    // 5. Bright Data Web Unlocker on a Google results page (https://brightdata.com)
+    const brightDataKey = process.env.BRIGHTDATA_API_KEY;
+    if (brightDataKey && ARBScrapeBudget.tryUse('brightdata', what)) {
+      const candidates = await this.discoverWithBrightData(task, brightDataKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 6. DuckDuckGo HTML fallback (free; often bot-blocked from cloud servers)
     return this.discoverWithDuckDuckGo(task, timeoutMs);
   }
 
@@ -395,6 +417,8 @@ export class ARBWebCrawler {
 
     const listings: MerchantListing[] = [];
     const seenUrls = new Set<string>();
+    // Bright Data page unlocks for this whole research run (shared by both regions).
+    const unlocks = new UnlockAllowance();
 
     const crawlPromises = searchTasks.map(async task => {
       try {
@@ -438,7 +462,8 @@ export class ARBWebCrawler {
           let verifiedPage = await ARBProductVerifier.fetchAndVerify(
             directUrl,
             Math.min(timeoutMs, 2500),
-            category
+            category,
+            unlocks
           );
 
           let finalTitle = cleanTitle;

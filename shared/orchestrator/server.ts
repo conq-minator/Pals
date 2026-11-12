@@ -8,9 +8,10 @@
  */
 
 import 'dotenv/config';
+import { existsSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { dirname, resolve } from 'node:path';
+import { dirname, extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { ArbService } from '../../ARB/index.js';
@@ -74,6 +75,22 @@ const page = (title: string, body: string) =>
   `<h2>${esc(title)}</h2><p>${esc(body)}</p><p>You can close this tab and go back to the chat.</p>`;
 
 const demoPage = resolve(glyRoot, 'GLY/demo/index.html');
+// The React app (frontend/), once built with `npm run frontend:build`. Without a build, / shows
+// GLY's plain demo chat instead. The demo chat is always at /demo.
+const appDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../frontend/dist');
+const appBuilt = existsSync(resolve(appDir, 'index.html'));
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2'
+};
+async function serveApp(pathname: string, res: import('node:http').ServerResponse): Promise<boolean> {
+  if (!appBuilt) return false;
+  const file = resolve(appDir, '.' + decodeURIComponent(pathname));
+  if (!file.startsWith(appDir + sep) && file !== appDir) return false; // no path traversal
+  const target = existsSync(file) && statSync(file).isFile() ? file : resolve(appDir, 'index.html');
+  res.writeHead(200, { 'content-type': MIME[extname(target)] ?? 'application/octet-stream' }).end(await readFile(target));
+  return true;
+}
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', publicUrl);
   const html = (status: number, content: string) =>
@@ -86,7 +103,7 @@ const server = createServer(async (req, res) => {
       );
       return;
     }
-    if (url.pathname === '/') {
+    if (url.pathname === '/demo' || (url.pathname === '/' && !appBuilt)) {
       const raw = await readFile(demoPage, 'utf8');
       html(200, raw
         .replace('<title>GLY demo chat</title>', '<title>PALS</title>')
@@ -110,6 +127,7 @@ const server = createServer(async (req, res) => {
       if (orderId) orchestrator.cancelPayment(orderId);
       return void html(200, page('Payment cancelled', 'Nothing was charged.'));
     }
+    if (req.method === 'GET' && (await serveApp(url.pathname, res))) return;
     res.writeHead(404).end();
   } catch (err) {
     log.error('http handler failed', { error: String(err) });
@@ -119,7 +137,7 @@ const server = createServer(async (req, res) => {
 attachChatSocket(server, gly, log);
 
 server.listen(config.port, () => {
-  log.info('PALS listening', { url: publicUrl, llm: config.llmProvider, paypal: paypalReady ? process.env.PAYPAL_MODE ?? 'sandbox' : 'offline' });
+  log.info('PALS listening', { url: publicUrl, app: appBuilt ? 'frontend/dist' : 'GLY demo chat (run npm run frontend:build for the React app)', llm: config.llmProvider, paypal: paypalReady ? process.env.PAYPAL_MODE ?? 'sandbox' : 'offline' });
 });
 
 const shutdown = async () => {

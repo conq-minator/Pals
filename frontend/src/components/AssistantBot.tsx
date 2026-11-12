@@ -244,7 +244,17 @@ export const AssistantBot: React.FC<AssistantBotProps> = ({
                       : 'bg-slate-100 dark:bg-slate-800/90 text-slate-800 dark:text-slate-200 rounded-bl-xs shadow-xs'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <p className="whitespace-pre-wrap break-words">
+                    {msg.content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+                      /^https?:\/\//.test(part) ? (
+                        <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline text-fintech-bright">
+                          {part.includes('paypal.com') ? 'Open PayPal' : part}
+                        </a>
+                      ) : (
+                        <React.Fragment key={i}>{part}</React.Fragment>
+                      )
+                    )}
+                  </p>
 
                   {/* Grounded PayPal Citations */}
                   {msg.references && msg.references.length > 0 && (

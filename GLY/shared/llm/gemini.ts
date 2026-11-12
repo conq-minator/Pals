@@ -5,6 +5,12 @@ import { ApiError, GoogleGenAI, type GenerateContentResponse } from "@google/gen
 import { z } from "zod";
 import type { LlmGateway, LlmPrompt } from "./index.ts";
 
+/**
+ * How long one Gemini call may take before GLY gives up and retries. Measured gemini-3.5-flash
+ * latency is 1-8 s and occasionally more, so 10 s cut off healthy calls. Override with GLY_LLM_TIMEOUT_MS.
+ */
+const LLM_TIMEOUT_MS = Number(process.env.GLY_LLM_TIMEOUT_MS) > 0 ? Number(process.env.GLY_LLM_TIMEOUT_MS) : 20_000;
+
 export type GeminiLlmOptions = {
   apiKey: string;
   /** Model for intent routing. Runs with minimal thinking for speed. */
@@ -54,7 +60,7 @@ export class GeminiLlm implements LlmGateway {
     }
   }
 
-  async structured<S extends z.ZodType>(prompt: LlmPrompt, schema: S, timeoutMs: number = 10_000): Promise<z.infer<S> | null> {
+  async structured<S extends z.ZodType>(prompt: LlmPrompt, schema: S, timeoutMs: number = LLM_TIMEOUT_MS): Promise<z.infer<S> | null> {
     const callPromise = this.ai.models.generateContent({
       model: this.opts.structuredModel,
       contents: prompt.user,
@@ -87,7 +93,7 @@ export class GeminiLlm implements LlmGateway {
     }
   }
 
-  async streamText(prompt: LlmPrompt, onText: (delta: string) => void, timeoutMs: number = 15_000): Promise<string | null> {
+  async streamText(prompt: LlmPrompt, onText: (delta: string) => void, timeoutMs: number = LLM_TIMEOUT_MS + 10_000): Promise<string | null> {
     const streamPromise = this.ai.models.generateContentStream({
       model: this.opts.answerModel,
       contents: prompt.user,

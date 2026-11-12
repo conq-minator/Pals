@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { glyClient, type PalHealth } from '../api/glyClient.js';
 import {
   CheckCircleIcon,
   ShieldCheckIcon,
@@ -6,17 +7,35 @@ import {
   RefreshCwIcon
 } from './Icons.js';
 
-export const AgentNetworkStatus: React.FC = () => {
-  const agents = [
-    { id: 'GLY', name: 'GuidePal Gateway', role: 'Conversational RAG & Ingestion', status: 'ONLINE', ping: '12ms' },
-    { id: 'ARB', name: 'ArbitrationPal', role: 'Autonomous Deal Discovery & Coupons', status: 'ACTIVE', ping: '45ms' },
-    { id: 'PULSE', name: 'PaymentPal', role: 'PayPal Order Capture Engine', status: 'READY', ping: '18ms' },
-    { id: 'DEFENDER', name: 'Security Defender', role: 'Pre-flight Threat & Limit Audit', status: 'ENFORCING', ping: '8ms' },
-  ];
+type Receipt = { id: string; item: string; amount: string; status: string; date: string };
 
-  const recentTransactions = [
-    { id: 'RCPT-849201', item: 'Apple MacBook Air 13.6"', amount: '$1,240.92', status: 'Captured', date: 'Just now' },
-    { id: 'RCPT-849190', item: 'Dell UltraSharp 4K Monitor', amount: '$610.19', status: 'Verified', date: 'Yesterday' },
+export const AgentNetworkStatus: React.FC = () => {
+  // Live status from the PALS server's /healthz; receipts are real ones captured in this session.
+  const [health, setHealth] = useState<PalHealth | null>(glyClient.getHealth());
+  const [recentTransactions, setRecent] = useState<Receipt[]>([]);
+  const simulated = glyClient.isSimulated();
+
+  useEffect(() => glyClient.onHealth(setHealth), []);
+  useEffect(
+    () =>
+      glyClient.onMessage((res) => {
+        const r = res.paymentResult;
+        if (!r || r.status !== 'COMPLETED') return;
+        setRecent((prev) => [
+          { id: r.receiptNumber, item: res.replyText.replace(/^Payment complete: /, ''), amount: `${r.currency} ${r.finalAmountCaptured.toFixed(2)}`, status: 'Captured', date: 'Just now' },
+          ...prev
+        ].slice(0, 5));
+      }),
+    []
+  );
+
+  const state = (id: keyof PalHealth, up: string) =>
+    simulated ? 'SIMULATED' : health === null ? 'OFFLINE' : health[id] ? up : 'NOT CONFIGURED';
+  const agents = [
+    { id: 'GLY', name: 'GuidePal Gateway', role: 'Conversational RAG & Ingestion', status: state('GLY', 'ONLINE') },
+    { id: 'ARB', name: 'ArbitrationPal', role: 'Autonomous Deal Discovery & Coupons', status: state('ARB', 'ONLINE') },
+    { id: 'PULSE', name: 'PaymentPal', role: 'PayPal Order Capture Engine', status: state('PULSE', 'READY') },
+    { id: 'DEFENDER', name: 'Security Defender', role: 'Pre-flight Threat & Limit Audit', status: state('DEFENDER', 'ENFORCING') },
   ];
 
   return (
@@ -30,7 +49,7 @@ export const AgentNetworkStatus: React.FC = () => {
           </h4>
         </div>
         <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">
-          4 Agents Synced
+          {simulated ? 'Simulated' : health ? `${Object.values(health).filter(Boolean).length}/4 online` : 'Offline'}
         </span>
       </div>
 
@@ -52,7 +71,7 @@ export const AgentNetworkStatus: React.FC = () => {
                 <span className="text-[10px] text-slate-400 block mt-0.5">{agent.role}</span>
               </div>
             </div>
-            <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800/30">
+            <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${['ONLINE', 'READY', 'ENFORCING'].includes(agent.status) ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800/30' : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800/30'}`}>
               {agent.status}
             </span>
           </div>
@@ -69,6 +88,9 @@ export const AgentNetworkStatus: React.FC = () => {
         </div>
 
         <div className="space-y-2">
+          {recentTransactions.length === 0 && (
+            <p className="text-[11px] text-slate-400">No payments yet in this session. Ask Pali "show my transactions" for your PALS history.</p>
+          )}
           {recentTransactions.map((tx) => (
             <div
               key={tx.id}
