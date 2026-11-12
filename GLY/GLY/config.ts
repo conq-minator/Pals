@@ -30,8 +30,8 @@ export function loadConfig(overrides: Partial<GlyConfig> = {}): GlyConfig {
   return {
     port: num("GLY_PORT", 8787),
     llmProvider: process.env.GLY_LLM_PROVIDER === "anthropic" ? "anthropic" : "gemini",
-    intentModel: process.env.GLY_INTENT_MODEL ?? (process.env.GLY_LLM_PROVIDER === "anthropic" ? "claude-haiku-5-5" : "gemini-3.5-flash"),
-    answerModel: process.env.GLY_ANSWER_MODEL ?? (process.env.GLY_LLM_PROVIDER === "anthropic" ? "claude-opus-5-5" : "gemini-3.5-flash"),
+    intentModel: process.env.GLY_INTENT_MODEL ?? process.env.MODEL_GLY_GATEWAY ?? (process.env.GLY_LLM_PROVIDER === "anthropic" ? "claude-haiku-5-5" : "gemini-2.5-flash"),
+    answerModel: process.env.GLY_ANSWER_MODEL ?? process.env.MODEL_GLY_RAG ?? (process.env.GLY_LLM_PROVIDER === "anthropic" ? "claude-opus-5-5" : "gemini-2.5-flash"),
     intentConfidenceMin: num("GLY_INTENT_CONFIDENCE_MIN", 0.6),
     ragScoreMin: process.env.GLY_RAG_SCORE_MIN ? Number(process.env.GLY_RAG_SCORE_MIN) : null,
     ragTopK: num("GLY_RAG_TOP_K", 8),
