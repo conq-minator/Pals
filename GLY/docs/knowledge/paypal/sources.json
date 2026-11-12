@@ -1,0 +1,26 @@
+{
+  "builtAt": "2026-11-12T04:24:41.827Z",
+  "specs": "https://github.com/paypal/paypal-rest-api-specifications (Apache-2.0)",
+  "guides": {
+    "sitemap": "https://developer.paypal.com/sitemap.xml",
+    "include": [
+      "/api/rest/",
+      "/api/disputes",
+      "/disputes/",
+      "/platforms/disputes/",
+      "/sandbox-testing/"
+    ],
+    "seeds": [
+      "https://developer.paypal.com/docs/",
+      "https://developer.paypal.com/api/rest/",
+      "https://developer.paypal.com/tools/sandbox/",
+      "https://developer.paypal.com/api/rest/webhooks/",
+      "https://developer.paypal.com/api/rest/webhooks/event-names/",
+      "https://developer.paypal.com/docs/api/customer-disputes/v1/"
+    ]
+  },
+  "counts": {
+    "specs": 13,
+    "guides": 69
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "pals-gly",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GLY (GuidePal): conversational gateway and PayPal knowledge specialist for PALS",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env GLY/server.ts",
+    "dev": "node --env-file-if-exists=.env --watch GLY/server.ts",
+    "ingest": "node --env-file-if-exists=.env GLY/rag/ingest/run.ts",
+    "eval:intent": "node --env-file-if-exists=.env GLY/tests/eval-intent.ts",
+    "test": "node --test \"GLY/tests/**/*.test.ts\"",
+    "typecheck": "tsc -p .",
+    "fetch:paypal": "node --env-file-if-exists=.env tools/paypal-docs/fetch.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@google/genai": "^3.1.0",
+    "@huggingface/transformers": "^4.3.2",
+    "pg": "^8.23.1",
+    "turndown": "^7.2.5",
+    "turndown-plugin-gfm": "^1.0.2",
+    "ws": "^8.22.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/turndown": "^5.0.6",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2"
+  }
+}

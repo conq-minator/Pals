@@ -1,0 +1,571 @@
+<title>GLY Pipeline Architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; system map up top, then each pipeline as a vertical step track, colour-coded by which PAL it touches */
+:root {
+  --bg: #f5f7f9;
+  --surface: #ffffff;
+  --fg: #15202b;
+  --muted: #5a6878;
+  --line: #cbd3dc;
+  --soft: #e9eef3;
+  --gly: #0e7782;
+  --gly-soft: #dff1f2;
+  --arb: #a8670f;
+  --arb-soft: #faeedb;
+  --pulse: #6547b8;
+  --pulse-soft: #ece6fa;
+  --warn: #b42318;
+  --warn-soft: #fdecea;
+  --f-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Inter", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1419; --surface: #151d25; --fg: #e5eaf0; --muted: #98a6b5; --line: #2d3946; --soft: #1c2630;
+    --gly: #45b9c3; --gly-soft: #12333a; --arb: #e2a94d; --arb-soft: #3a2c14; --pulse: #a88ff0; --pulse-soft: #2a2244;
+    --warn: #f97066; --warn-soft: #3d1a18; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1419; --surface: #151d25; --fg: #e5eaf0; --muted: #98a6b5; --line: #2d3946; --soft: #1c2630;
+  --gly: #45b9c3; --gly-soft: #12333a; --arb: #e2a94d; --arb-soft: #3a2c14; --pulse: #a88ff0; --pulse-soft: #2a2244;
+  --warn: #f97066; --warn-soft: #3d1a18; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--f-body); font-size: 15px; line-height: 1.6;
+}
+.wrap {
+  max-width: 980px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+  display: flex; flex-direction: column; gap: 56px;
+}
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: clamp(30px, 5vw, 42px); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 26px; font-weight: 600; }
+h3 { font-size: 19px; font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--f-mono); font-size: 0.86em; }
+code { background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+.eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); font-weight: 600; }
+.muted { color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 18px; }
+
+/* header */
+header { display: flex; flex-direction: column; gap: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 600; }
+
+/* legend chips */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; letter-spacing: 0.02em; white-space: nowrap; }
+.c-gly { background: var(--gly-soft); color: var(--gly); }
+.c-arb { background: var(--arb-soft); color: var(--arb); }
+.c-pulse { background: var(--pulse-soft); color: var(--pulse); }
+.c-neutral { background: var(--soft); color: var(--muted); }
+.c-warn { background: var(--warn-soft); color: var(--warn); }
+
+/* system map */
+.map { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.map svg { display: block; min-width: 860px; width: 100%; height: auto; }
+.map .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.4; }
+.map .box-gly { fill: var(--gly-soft); stroke: var(--gly); stroke-width: 1.4; }
+.map .box-arb { fill: var(--arb-soft); stroke: var(--arb); stroke-width: 1.4; }
+.map .box-pulse { fill: var(--pulse-soft); stroke: var(--pulse); stroke-width: 1.4; }
+.map .zone { fill: none; stroke: var(--gly); stroke-width: 1.5; stroke-dasharray: 6 5; }
+.map .zone2 { fill: none; stroke: var(--line); stroke-width: 1.3; stroke-dasharray: 4 4; }
+.map .t { fill: var(--fg); font-family: var(--f-display); font-size: 14px; font-weight: 600; }
+.map .ts { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.map .tz { fill: var(--gly); font-family: var(--f-display); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; }
+.map .tl { fill: var(--muted); font-family: var(--f-body); font-size: 11px; }
+.map .ar { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.map .ar-d { fill: none; stroke: var(--pulse); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.map .head { fill: var(--muted); }
+.map .head-p { fill: var(--pulse); }
+
+/* pipeline index */
+.index { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.index a {
+  display: flex; flex-direction: column; gap: 4px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  color: var(--fg); text-decoration: none;
+}
+.index a:hover, .index a:focus-visible { border-color: var(--gly); outline: none; }
+.index .n { font-family: var(--f-mono); font-size: 12px; color: var(--gly); }
+.index .nm { font-family: var(--f-display); font-weight: 600; }
+.index .sub { font-size: 13px; color: var(--muted); }
+
+/* pipeline blocks */
+.pipe { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 16px; }
+.pipe-head { display: flex; flex-direction: column; gap: 8px; }
+.pipe-head .top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.pipe-head .id { font-family: var(--f-mono); font-size: 13px; color: var(--gly); font-weight: 500; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 20px; font-size: 13.5px; }
+.facts div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.facts dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+ol.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+ol.steps li { display: grid; grid-template-columns: 34px 1fr; gap: 14px; position: relative; padding-bottom: 16px; }
+ol.steps li:last-child { padding-bottom: 0; }
+ol.steps li::before {
+  counter-increment: none; content: attr(data-n);
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-family: var(--f-mono); font-size: 12px; font-weight: 500;
+  background: var(--gly-soft); color: var(--gly); border: 1px solid var(--gly);
+  position: relative; z-index: 1;
+}
+ol.steps li::after {
+  content: ""; position: absolute; left: 14px; top: 30px; bottom: 0; width: 1px; background: var(--line);
+}
+ol.steps li:last-child::after { display: none; }
+ol.steps li.arb::before { background: var(--arb-soft); color: var(--arb); border-color: var(--arb); }
+ol.steps li.pulse::before { background: var(--pulse-soft); color: var(--pulse); border-color: var(--pulse); }
+ol.steps li.stop::before { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.step { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 3px; }
+.step .s-t { font-weight: 600; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.step .s-m { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-weight: 400; }
+.step p { color: var(--muted); font-size: 14px; }
+
+.rules { background: var(--soft); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.rules .eyebrow { color: var(--fg); }
+.rules ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+/* tables */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); font-weight: 600; background: var(--soft); }
+tr:last-child td { border-bottom: none; }
+
+/* code */
+pre {
+  margin: 0; overflow-x: auto; background: var(--soft); border-radius: 8px; padding: 16px;
+  font-family: var(--f-mono); font-size: 13px; line-height: 1.55; color: var(--fg);
+}
+pre .c { color: var(--muted); }
+
+/* phases */
+.phases { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.phase { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.phase .ph { font-family: var(--f-mono); font-size: 12px; color: var(--gly); }
+.phase ul { margin: 0; padding-left: 18px; font-size: 14px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+.phase .done { font-size: 13px; border-top: 1px solid var(--line); padding-top: 8px; }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.two > * { min-width: 0; }
+.note { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
+.note ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+
+a { color: var(--gly); }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+@media (max-width: 520px) { .pipe { padding: 18px 16px; } }
+</style>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">PALS · Module GLY (GuidePal)</div>
+  <h1>GLY Pipeline Architecture</h1>
+  <p>GLY is the front desk of PALS. It hears every user message and either answers PayPal questions itself or hands the job to ARB or PULSE. This page lays out every pipeline inside GLY: what starts it, each step in order, which shared module each step uses, and what it must never do.</p>
+  <div class="meta">
+    <span><b>Phase:</b> 0 → 1 build plan</span>
+    <span><b>Date:</b> 11 Nov 2026</span>
+    <span><b>Pipelines:</b> 7 (6 realtime, 1 batch)</span>
+  </div>
+  <div class="chips">
+    <span class="chip c-gly">Runs inside GLY</span>
+    <span class="chip c-arb">Goes to ARB</span>
+    <span class="chip c-pulse">Goes to PULSE</span>
+    <span class="chip c-warn">Stop / fallback</span>
+  </div>
+</header>
+
+<section>
+  <h2>The whole system on one screen</h2>
+  <p class="muted">Solid arrows are the normal flow. The dashed purple arrow is the one path to a payment: the user taps Approve on a card.</p>
+  <div class="map" role="img" aria-label="System map: User talks to the Chat Gateway, which sends messages to the Intent Router. The router sends PayPal questions to the RAG Engine, which searches the pgvector store, and sends tasks to the Delegator, which sends them through calls/ to ARB or PULSE. Their results come back on the task event bus to the Results and Cards component, which pushes them to the Chat Gateway. Approving a card sends a payment request through the Delegator.">
+    <svg viewBox="0 0 910 390" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 z"/></marker>
+        <marker id="ahp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-p" d="M0 0 L10 5 L0 10 z"/></marker>
+      </defs>
+
+      <!-- GLY zone -->
+      <rect class="zone" x="165" y="14" width="470" height="366" rx="14"/>
+      <text class="tz" x="180" y="36">GLY</text>
+
+      <!-- User -->
+      <rect class="box" x="16" y="54" width="112" height="52" rx="8"/>
+      <text class="t" x="72" y="78" text-anchor="middle">User</text>
+      <text class="ts" x="72" y="95" text-anchor="middle">chat UI</text>
+
+      <!-- Left column -->
+      <rect class="box-gly" x="200" y="54" width="180" height="52" rx="8"/>
+      <text class="t" x="290" y="76" text-anchor="middle">Chat Gateway</text>
+      <text class="ts" x="290" y="93" text-anchor="middle">WebSocket in/out</text>
+
+      <rect class="box-gly" x="200" y="160" width="180" height="52" rx="8"/>
+      <text class="t" x="290" y="182" text-anchor="middle">Intent Router</text>
+      <text class="ts" x="290" y="199" text-anchor="middle">LLM + Zod</text>
+
+      <rect class="box-gly" x="200" y="310" width="180" height="52" rx="8"/>
+      <text class="t" x="290" y="332" text-anchor="middle">Results &amp; Cards</text>
+      <text class="ts" x="290" y="349" text-anchor="middle">event listener</text>
+
+      <!-- Right column -->
+      <rect class="box" x="430" y="40" width="185" height="44" rx="8"/>
+      <text class="t" x="522" y="60" text-anchor="middle">PayPal docs</text>
+      <text class="ts" x="522" y="75" text-anchor="middle">pgvector</text>
+
+      <rect class="box-gly" x="430" y="112" width="185" height="52" rx="8"/>
+      <text class="t" x="522" y="134" text-anchor="middle">RAG Engine</text>
+      <text class="ts" x="522" y="151" text-anchor="middle">search + answer</text>
+
+      <rect class="box-gly" x="430" y="200" width="185" height="52" rx="8"/>
+      <text class="t" x="522" y="222" text-anchor="middle">Delegator</text>
+      <text class="ts" x="522" y="239" text-anchor="middle">builds envelopes</text>
+
+      <!-- Outside -->
+      <rect class="box" x="668" y="200" width="88" height="52" rx="8"/>
+      <text class="t" x="712" y="231" text-anchor="middle">calls/</text>
+
+      <rect class="zone2" x="782" y="140" width="116" height="160" rx="10"/>
+      <text class="tl" x="840" y="156" text-anchor="middle">other PALs</text>
+      <rect class="box-arb" x="794" y="166" width="92" height="44" rx="8"/>
+      <text class="t" x="840" y="193" text-anchor="middle">ARB</text>
+      <rect class="box-pulse" x="794" y="240" width="92" height="44" rx="8"/>
+      <text class="t" x="840" y="267" text-anchor="middle">PULSE</text>
+
+      <rect class="box" x="668" y="322" width="230" height="44" rx="8"/>
+      <text class="t" x="783" y="342" text-anchor="middle">Task event bus</text>
+      <text class="ts" x="783" y="357" text-anchor="middle">shared/tasks</text>
+
+      <!-- Arrows -->
+      <path class="ar" d="M128 80 H198" marker-end="url(#ah)" marker-start="url(#ah)"/>
+      <path class="ar" d="M290 106 V158" marker-end="url(#ah)"/>
+      <text class="tl" x="298" y="137">every message</text>
+
+      <path class="ar" d="M380 176 L428 146" marker-end="url(#ah)"/>
+      <text class="tl" x="384" y="150">question</text>
+      <path class="ar" d="M380 196 L428 220" marker-end="url(#ah)"/>
+      <text class="tl" x="388" y="226">task</text>
+
+      <path class="ar" d="M522 112 V86" marker-end="url(#ah)"/>
+      <path class="ar" d="M430 124 L382 96" marker-end="url(#ah)"/>
+      <text class="tl" x="388" y="124">streams answer</text>
+
+      <path class="ar" d="M615 226 H666" marker-end="url(#ah)"/>
+      <path class="ar" d="M756 218 L792 192" marker-end="url(#ah)"/>
+      <path class="ar" d="M756 236 L792 258" marker-end="url(#ah)"/>
+
+      <path class="ar" d="M840 300 V320" marker-end="url(#ah)"/>
+      <text class="tl" x="848" y="314">done</text>
+      <path class="ar" d="M668 344 H382" marker-end="url(#ah)"/>
+      <path class="ar" d="M200 336 H184 V92 H198" marker-end="url(#ah)"/>
+      <text class="tl" x="172" y="270" transform="rotate(-90 172 270)">pushes cards</text>
+
+      <path class="ar-d" d="M380 318 L470 254" marker-end="url(#ahp)"/>
+      <text class="tl" x="430" y="300" style="fill: var(--pulse)">Approve tap</text>
+    </svg>
+  </div>
+</section>
+
+<section>
+  <h2>The 7 pipelines</h2>
+  <nav class="index" aria-label="Pipelines">
+    <a href="#p1"><span class="n">P1 · realtime</span><span class="nm">Message In</span><span class="sub">Receive and check every message</span></a>
+    <a href="#p2"><span class="n">P2 · realtime</span><span class="nm">Intent Routing</span><span class="sub">Decide what the user wants</span></a>
+    <a href="#p3"><span class="n">P3 · batch</span><span class="nm">Knowledge Ingest</span><span class="sub">Load PayPal docs into pgvector</span></a>
+    <a href="#p4"><span class="n">P4 · realtime</span><span class="nm">RAG Answer</span><span class="sub">Answer PayPal questions from docs</span></a>
+    <a href="#p5"><span class="n">P5 · realtime</span><span class="nm">Delegation</span><span class="sub">Send work to ARB / PULSE, reply now</span></a>
+    <a href="#p6"><span class="n">P6 · realtime</span><span class="nm">Results Back</span><span class="sub">Turn finished tasks into cards</span></a>
+    <a href="#p7"><span class="n">P7 · realtime</span><span class="nm">Approval</span><span class="sub">User signs off, payment goes to PULSE</span></a>
+  </nav>
+</section>
+
+<!-- P1 -->
+<article class="pipe" id="p1">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P1</span><h3>Message In</h3><span class="chip c-gly">GLY only</span></div>
+    <p class="muted">The door. Every message the user types comes through here before anything else happens.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>User sends a chat message</dd></div>
+    <div><dt>Ends with</dt><dd>An <code>InboundMessage</code> handed to P2</dd></div>
+    <div><dt>Speed target</dt><dd>Under 50 ms</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Receive on the socket <span class="s-m">chat/socket.ts</span></div><p>WebSocket server gets the raw text, user id and session id.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Validate the shape <span class="s-m">shared/types</span></div><p>Zod checks the message. Empty, too long (over ~4,000 chars) or malformed messages are rejected with a friendly error.</p></div></li>
+    <li data-n="3"><div class="step"><div class="s-t">Give it an ID <span class="s-m">shared/logging</span></div><p>Create a <code>correlationId</code>. Every log line and every envelope from here on carries it, so one message can be traced across all PALs.</p></div></li>
+    <li data-n="4"><div class="step"><div class="s-t">Load session context <span class="s-m">chat/session.ts</span></div><p>Fetch the last ~10 turns and the list of tasks still running for this user. The router needs these to understand "the cheaper one" or "is it done yet?".</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Hand off to Intent Routing</div><p>Pass the <code>InboundMessage</code> with its context to P2.</p></div></li>
+  </ol>
+</article>
+
+<!-- P2 -->
+<article class="pipe" id="p2">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P2</span><h3>Intent Routing</h3><span class="chip c-gly">GLY only</span></div>
+    <p class="muted">The brain. Works out what the user wants, then picks the next pipeline. The LLM only labels the message. Plain code makes the routing decision.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>P1 hands over a message</dd></div>
+    <div><dt>Ends with</dt><dd>An <code>IntentResult</code> and a chosen pipeline</dd></div>
+    <div><dt>Model</dt><dd>Claude Haiku 5.5 (fast, cheap)</dd></div>
+    <div><dt>Speed target</dt><dd>Under 800 ms</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Build the prompt <span class="s-m">intent/prompt.ts</span></div><p>Message, short history, open tasks and the list of allowed intents with one example each.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Ask the LLM for structured output <span class="s-m">shared/llm</span></div><p>Tool / function calling forces the reply into JSON: intent, confidence, extracted entities (product, budget, order id…).</p></div></li>
+    <li data-n="3"><div class="step"><div class="s-t">Parse with Zod <span class="s-m">intent/schema.ts</span></div><p>If the JSON does not match the schema, retry once. If it still fails, treat it as <code>unclear</code>.</p></div></li>
+    <li data-n="4" class="stop"><div class="step"><div class="s-t">Confidence gate</div><p>Confidence below 0.6 or a missing required entity (for example, no product named) gets a clarifying question, not a guess.</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Route <span class="s-m">intent/router.ts</span></div><p>A plain lookup table (below) picks P4, P5 or a direct reply.</p></div></li>
+  </ol>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Intent</th><th>Example message</th><th>Goes to</th></tr></thead>
+      <tbody>
+        <tr><td><code>paypal_guidance</code></td><td>"How long do I have to open a dispute?"</td><td><span class="chip c-gly">P4 RAG Answer</span></td></tr>
+        <tr><td><code>shopping_research</code></td><td>"Find me noise-cancelling headphones under $200"</td><td><span class="chip c-arb">P5 → ARB research.start</span></td></tr>
+        <tr><td><code>purchase_prep</code></td><td>"Find a coupon for the Sony ones and get it ready"</td><td><span class="chip c-arb">P5 → ARB purchase_prep.start</span></td></tr>
+        <tr><td><code>transaction_query</code></td><td>"What did I spend last month?"</td><td><span class="chip c-pulse">P5 → PULSE transaction.query</span></td></tr>
+        <tr><td><code>payment_request</code></td><td>"Pay for it" / "Refund my last order"</td><td><span class="chip c-warn">Never pays directly.</span> Shows or re-shows an approval card (P7)</td></tr>
+        <tr><td><code>task_status</code></td><td>"Is my search done?"</td><td><span class="chip c-gly">Direct reply</span> from session task list</td></tr>
+        <tr><td><code>smalltalk</code></td><td>"Thanks!"</td><td><span class="chip c-gly">Direct reply</span> short LLM answer</td></tr>
+        <tr><td><code>unclear</code></td><td>"That one"</td><td><span class="chip c-warn">Ask a clarifying question</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</article>
+
+<!-- P3 -->
+<article class="pipe" id="p3">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P3</span><h3>Knowledge Ingest</h3><span class="chip c-neutral">Batch · offline</span></div>
+    <p class="muted">The library builder. Runs as a script, not during chat. It turns PayPal's docs into searchable pieces.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>You run <code>npm run ingest</code>, or docs change</dd></div>
+    <div><dt>Ends with</dt><dd>Tagged chunks stored in pgvector</dd></div>
+    <div><dt>Source</dt><dd><code>docs/knowledge/paypal/*.md</code></dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Collect official docs <span class="s-m">docs/knowledge/paypal/</span></div><p>Only official PayPal consumer and developer pages, saved as Markdown with the source URL and date at the top of each file.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Clean <span class="s-m">rag/ingest/clean.ts</span></div><p>Strip navigation, footers and cookie text. Keep headings, lists and tables.</p></div></li>
+    <li data-n="3"><div class="step"><div class="s-t">Chunk by heading <span class="s-m">rag/ingest/chunk.ts</span></div><p>Split on H2/H3 into ~500–800 token pieces with ~100 tokens of overlap. Never cut a table or numbered procedure in half.</p></div></li>
+    <li data-n="4"><div class="step"><div class="s-t">Tag metadata</div><p>Each chunk gets <code>sourceUrl</code>, <code>section</code>, <code>audience</code> (consumer / developer), <code>region</code>, <code>topic</code> (fees, disputes, KYC, API…) and <code>docDate</code>.</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Skip unchanged chunks</div><p>Hash each chunk's text. If the hash already exists in the store, skip it, which keeps re-runs cheap.</p></div></li>
+    <li data-n="6"><div class="step"><div class="s-t">Embed and upsert <span class="s-m">shared/db/vector</span></div><p>Create embeddings and write them to pgvector with a <code>corpusVersion</code>. Delete chunks whose source page was removed.</p></div></li>
+  </ol>
+</article>
+
+<!-- P4 -->
+<article class="pipe" id="p4">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P4</span><h3>RAG Answer</h3><span class="chip c-gly">GLY only</span></div>
+    <p class="muted">The librarian. It answers PayPal questions using only what the docs say, and it says so when the docs don't cover something.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>P2 routes <code>paypal_guidance</code></dd></div>
+    <div><dt>Ends with</dt><dd>A streamed answer with source links</dd></div>
+    <div><dt>Speed target</dt><dd>First words in under 1.5 s</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Rewrite the question</div><p>Turn "what about for sellers?" into a standalone question using the chat history.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Search <span class="s-m">shared/db/vector</span></div><p>Embed the question and fetch the top 8 chunks, filtered by metadata where the intent gave hints (audience, region, topic).</p></div></li>
+    <li data-n="3" class="stop"><div class="step"><div class="s-t">Confidence check</div><p>If the best match scores below the threshold, reply: "I couldn't find that in PayPal's official docs", with a link to PayPal Help. Never guess a policy.</p></div></li>
+    <li data-n="4"><div class="step"><div class="s-t">Generate a grounded answer <span class="s-m">shared/llm</span></div><p>The prompt says to use only these chunks and cite each fact as [1], [2]. A stronger model works best here.</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Stream and cite <span class="s-m">chat/socket.ts</span></div><p>Stream tokens to the user, then attach the source links for each citation.</p></div></li>
+  </ol>
+</article>
+
+<!-- P5 -->
+<article class="pipe" id="p5">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P5</span><h3>Delegation</h3><span class="chip c-arb">ARB</span><span class="chip c-pulse">PULSE</span></div>
+    <p class="muted">The dispatcher. Packs the job, sends it through <code>calls/</code>, and tells the user straight away. It never waits for the result.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>P2 routes a shopping or transaction intent, or P7 sends an approval</dd></div>
+    <div><dt>Ends with</dt><dd>Task saved as <code>pending</code>, plus an instant reply</dd></div>
+    <div><dt>Speed target</dt><dd>Acknowledgement in under 1 s</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Build the payload <span class="s-m">delegation/payloads.ts</span></div><p>Map entities into the right typed payload: <code>ARBResearchPayload</code>, <code>PurchaseProposal</code>, <code>TransactionQueryRequest</code> or <code>PulsePaymentRequest</code>.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Wrap in an envelope <span class="s-m">delegation/envelope.ts</span></div><p><code>PalCallEnvelope</code> with <code>taskId</code>, <code>correlationId</code>, <code>sessionId</code>, <code>action</code>, <code>payload</code> and an <code>idempotencyKey</code> so a retry can't start the job twice.</p></div></li>
+    <li data-n="3" class="arb"><div class="step"><div class="s-t">Send via calls/ <span class="s-m">calls/</span></div><p>calls/ replies "accepted" right away. GLY does not <code>await</code> the work itself. It never talks to ARB or PULSE directly.</p></div></li>
+    <li data-n="4"><div class="step"><div class="s-t">Record the task</div><p>Save <code>{taskId, action, status: "pending", createdAt}</code> on the session so the user can ask "is it done?".</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Reply now</div><p>"Looking for headphones under $200. I'll show you when it's ready. Ask me anything meanwhile."</p></div></li>
+    <li data-n="6" class="stop"><div class="step"><div class="s-t">If calls/ refuses</div><p>Retry once with the same idempotency key. If it fails again, tell the user plainly and log the error. Don't loop.</p></div></li>
+  </ol>
+</article>
+
+<!-- P6 -->
+<article class="pipe" id="p6">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P6</span><h3>Results Back</h3><span class="chip c-gly">GLY only</span></div>
+    <p class="muted">The mail room. Listens for finished work and puts it in front of the user as a clean card.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>An event arrives on <code>shared/tasks</code></dd></div>
+    <div><dt>Listens for</dt><dd><code>task.progress</code>, <code>task.completed</code>, <code>task.failed</code>, <code>proposal.ready</code></dd></div>
+    <div><dt>Ends with</dt><dd>A card in the chat, task status updated</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1"><div class="step"><div class="s-t">Subscribe <span class="s-m">events/listener.ts</span></div><p>One long-running subscriber for GLY's events, started when the server boots.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Match to a session</div><p>Look up <code>taskId</code>. Ignore duplicates (same event id twice) and events for unknown tasks.</p></div></li>
+    <li data-n="3"><div class="step"><div class="s-t">Pick a card <span class="s-m">events/cards.ts</span></div><p><code>ProductResultsCard</code>, <code>ProposalCard</code> (goes to P7), <code>TransactionSummaryCard</code>, <code>PaymentReceiptCard</code> or <code>ErrorCard</code>.</p></div></li>
+    <li data-n="4"><div class="step"><div class="s-t">Deliver</div><p>If the user is online, push to the socket. If not, save it to an inbox and show it on their next connect.</p></div></li>
+    <li data-n="5" class="stop"><div class="step"><div class="s-t">Stale tasks</div><p>A pending task with no event after ~5 minutes gets a gentle "still working on it" note. Never a silent failure.</p></div></li>
+  </ol>
+</article>
+
+<!-- P7 -->
+<article class="pipe" id="p7">
+  <div class="pipe-head">
+    <div class="top"><span class="id">P7</span><h3>Approval</h3><span class="chip c-pulse">Ends at PULSE</span></div>
+    <p class="muted">The only road to a payment. GLY shows the card and passes on the user's yes. PULSE does the actual paying.</p>
+  </div>
+  <dl class="facts">
+    <div><dt>Starts when</dt><dd>ARB emits <code>proposal.ready</code></dd></div>
+    <div><dt>Ends with</dt><dd><code>payment.execute</code> sent to PULSE, or the proposal closed</dd></div>
+    <div><dt>Key rule</dt><dd>Typed chat text alone never triggers payment</dd></div>
+  </dl>
+  <ol class="steps">
+    <li data-n="1" class="arb"><div class="step"><div class="s-t">Proposal arrives</div><p>Via P6: item, merchant, final price, coupon applied, <code>proposalId</code> and expiry time.</p></div></li>
+    <li data-n="2"><div class="step"><div class="s-t">Show the approval card</div><p>Clear total in the user's currency, what it's for, and two buttons: Approve and Reject.</p></div></li>
+    <li data-n="3" class="stop"><div class="step"><div class="s-t">Check before sending</div><p>Proposal not expired, belongs to this user, not already approved. If it fails any check, explain why and offer to refresh the deal via ARB.</p></div></li>
+    <li data-n="4" class="pulse"><div class="step"><div class="s-t">Send payment request <span class="s-m">calls/</span></div><p>Go through P5 with <code>action='payment.execute'</code> and <code>PulsePaymentRequest {proposalId, userId}</code>. Use the <code>proposalId</code> as the idempotency key so a double tap pays once.</p></div></li>
+    <li data-n="5"><div class="step"><div class="s-t">Acknowledge</div><p>"Sent to PULSE for payment." The receipt comes back through P6.</p></div></li>
+  </ol>
+</article>
+
+<section>
+  <h2>Shared data shapes</h2>
+  <p class="muted">These live in <code>shared/types</code> and must match API_CONTRACTS.md. Field names here are a proposal to agree with the ARB and PULSE owners.</p>
+<pre><span class="c">// What P1 produces</span>
+type InboundMessage = {
+  messageId: string; sessionId: string; userId: string;
+  text: string; receivedAt: string; correlationId: string;
+  history: ChatTurn[]; openTasks: TaskRef[];
+};
+
+<span class="c">// What P2 produces (validated by Zod)</span>
+type IntentResult = {
+  intent: "paypal_guidance" | "shopping_research" | "purchase_prep"
+        | "transaction_query" | "payment_request" | "task_status"
+        | "smalltalk" | "unclear";
+  confidence: number;            <span class="c">// 0–1, below 0.6 asks a question</span>
+  entities: { product?: string; budget?: number; currency?: string;
+              orderId?: string; dateRange?: { from: string; to: string } };
+};
+
+<span class="c">// What P5 sends through calls/</span>
+type PalCallEnvelope&lt;T&gt; = {
+  taskId: string; correlationId: string; sessionId: string;
+  from: "GLY"; to: "ARB" | "PULSE";
+  action: "research.start" | "purchase_prep.start"
+        | "payment.execute" | "transaction.query";
+  idempotencyKey: string; payload: T; sentAt: string;
+};
+
+<span class="c">// What P6 receives from shared/tasks</span>
+type TaskEvent = {
+  eventId: string; taskId: string;
+  type: "task.progress" | "task.completed" | "task.failed" | "proposal.ready";
+  data: unknown; at: string;
+};</pre>
+</section>
+
+<section>
+  <h2>Folder layout</h2>
+<pre>GLY/
+  chat/
+    socket.ts          <span class="c">P1 · WebSocket in/out, streaming</span>
+    session.ts         <span class="c">P1 · history + open tasks</span>
+  intent/
+    schema.ts          <span class="c">P2 · Zod IntentResult</span>
+    prompt.ts          <span class="c">P2 · prompt + examples</span>
+    classify.ts        <span class="c">P2 · LLM call via shared/llm</span>
+    router.ts          <span class="c">P2 · intent → pipeline table</span>
+  rag/
+    ingest/            <span class="c">P3 · clean.ts, chunk.ts, run.ts</span>
+    retrieve.ts        <span class="c">P4 · search + threshold</span>
+    answer.ts          <span class="c">P4 · grounded answer + citations</span>
+  delegation/
+    payloads.ts        <span class="c">P5 · entities → typed payloads</span>
+    envelope.ts        <span class="c">P5 · PalCallEnvelope builder</span>
+    send.ts            <span class="c">P5 · calls/ client + retry once</span>
+  events/
+    listener.ts        <span class="c">P6 · shared/tasks subscriber</span>
+    cards.ts           <span class="c">P6 · event → card</span>
+    approval.ts        <span class="c">P7 · checks + payment.execute</span>
+  tests/
+    intent.eval.json   <span class="c">labelled messages</span>
+    rag.golden.json    <span class="c">questions with known answers</span></pre>
+</section>
+
+<section>
+  <h2>Build order</h2>
+  <p class="muted">Each phase ends with something you can demo. Fake ARB and PULSE until the real ones exist, so you're never blocked on other teams.</p>
+  <div class="phases">
+    <div class="phase"><span class="ph">Phase 1 · Week 1</span><h3>Skeleton</h3><ul><li>Types in <code>shared/types</code></li><li>WebSocket echo server (P1)</li><li>Logger with correlationId</li></ul><div class="done"><b>Demo:</b> type a message, see it logged with an id.</div></div>
+    <div class="phase"><span class="ph">Phase 2 · Week 2</span><h3>Intent Routing</h3><ul><li>Zod schema and classifier (P2)</li><li>~200 labelled test messages</li><li>Router table and clarifying questions</li></ul><div class="done"><b>Demo:</b> the right label for 95% or more of the test set.</div></div>
+    <div class="phase"><span class="ph">Phase 3 · Week 3</span><h3>Delegation + Results</h3><ul><li>Envelope builder and send (P5)</li><li>Fake calls/ that replies after 10 s</li><li>Event listener and cards (P6)</li></ul><div class="done"><b>Demo:</b> ask for headphones, get an instant ack, chat freely, then the card appears.</div></div>
+    <div class="phase"><span class="ph">Phase 4 · Week 4</span><h3>Knowledge Ingest</h3><ul><li>Collect PayPal docs</li><li>Chunk, tag, embed (P3)</li><li>Hash-based re-runs</li></ul><div class="done"><b>Demo:</b> search "dispute deadline" and see the right chunks.</div></div>
+    <div class="phase"><span class="ph">Phase 5 · Week 5</span><h3>RAG Answer</h3><ul><li>Retrieve with threshold (P4)</li><li>Grounded answer with citations</li><li>"I don't know" path</li></ul><div class="done"><b>Demo:</b> correct cited answers, and an honest "not found" for made-up questions.</div></div>
+    <div class="phase"><span class="ph">Phase 6 · Week 6</span><h3>Approval + Hardening</h3><ul><li>Approval card and checks (P7)</li><li>Offline inbox, stale-task notes</li><li>Swap fakes for real calls/</li></ul><div class="done"><b>Demo:</b> full flow from "find it" to "approve" to receipt.</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Testing and rules that apply everywhere</h2>
+  <div class="two">
+    <div class="note">
+      <h3>Tests that prove the contract</h3>
+      <ul>
+        <li><b>Non-blocking test:</b> fake ARB takes 30 s. GLY must still ack in under 1 s and answer a second message meanwhile.</li>
+        <li><b>Intent eval:</b> labelled set, run on every change. Watch for payment phrases being misread.</li>
+        <li><b>RAG golden set:</b> real questions with known answers and sources.</li>
+        <li><b>No-hallucination test:</b> made-up policy questions must get "not found".</li>
+        <li><b>Boundary test:</b> GLY code has no imports of Playwright, PayPal SDKs or ARB/PULSE modules. A lint rule can enforce this.</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h3>Rules for every pipeline</h3>
+      <ul>
+        <li>Every log and envelope carries the <code>correlationId</code>.</li>
+        <li>Nothing in the chat path awaits ARB or PULSE work.</li>
+        <li>All cross-PAL traffic goes through <code>calls/</code>.</li>
+        <li>No secrets in GLY: no PayPal keys, no card data.</li>
+        <li>Every failure tells the user something. Nothing fails silently.</li>
+        <li>Retries reuse the same idempotency key.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Questions to settle with the team</h2>
+  <div class="note">
+    <ul>
+      <li><b>Orchestrator vs calls/:</b> the README says tasks go to "the Orchestrator", but RESPONSIBILITIES says everything goes through <code>calls/</code>. This plan assumes <code>calls/</code> is the way into the Orchestrator. Confirm who owns it.</li>
+      <li><b>Event names:</b> agree the exact <code>TaskEvent</code> types with ARB and PULSE, especially <code>proposal.ready</code>.</li>
+      <li><b>Model choice:</b> ADR-GLY-001 names Claude 3.5 Haiku, which is outdated. Update it to Claude Haiku 5.5 for routing.</li>
+      <li><b>Refunds:</b> should a refund also go through an approval card? This plan says yes, to keep one road to money movement.</li>
+    </ul>
+  </div>
+</section>
+
+</div>

@@ -1,0 +1,76 @@
+# ------------------------------------------------------------
+# Secrets and environment variables: NEVER commit these
+# ------------------------------------------------------------
+# Real keys (GEMINI_API_KEY, ANTHROPIC_API_KEY, VOYAGE_API_KEY, DATABASE_URL, ...)
+# go in .env, which every npm script loads automatically.
+.env
+.env.*
+*.env
+!.env.example
+
+# Key and credential files of any kind
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+credentials*.json
+service-account*.json
+secrets/
+
+# ------------------------------------------------------------
+# Dependencies (rebuilt with `npm install`)
+# ------------------------------------------------------------
+node_modules/
+.npm/
+
+# ------------------------------------------------------------
+# Generated data (rebuilt automatically)
+# ------------------------------------------------------------
+# Saved embeddings, ~17 MB, rebuilt on the next start or `npm run ingest`
+.cache/
+# Hugging Face model downloads, if the cache is moved out of node_modules
+.hf-cache/
+models/
+
+# Fetched developer.paypal.com pages. They're PayPal's copyrighted content,
+# so they're kept out of the repo; rebuild with `npm run fetch:paypal`.
+# (api-reference/ comes from Apache-2.0 specs and IS committed.)
+docs/knowledge/paypal/developer-guides/
+
+# Build output and coverage, if added later
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Throwaway scripts
+*.tmp.ts
+*.tmp.js
+*.tmp
+
+# ------------------------------------------------------------
+# Logs and local databases
+# ------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+pgdata/
+*.sqlite
+*.db
+
+# ------------------------------------------------------------
+# Editor and OS files
+# ------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local AI-assistant settings
+.claude/settings.local.json

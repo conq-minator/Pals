@@ -42,3 +42,6 @@ GLY operates strictly as a **non-blocking conversational gateway**: it acknowled
 - [MEMORY.md](MEMORY.md) — Module changelog, ADRs, and active development state.
 - [RESPONSIBILITIES.md](RESPONSIBILITIES.md) — Strict boundary definitions, tool whitelists, and delegation protocols.
 
+## 5. Standalone implementation
+
+The runnable GLY demo and its developer quick start are in [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md).
