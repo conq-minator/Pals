@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
+    "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
@@ -8,12 +8,12 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "types": ["node"],
-    "outDir": "./dist",
-    "rootDir": "./"
+    "types": [
+      "node"
+    ],
+    "rootDir": "./",
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   },
   "include": [
     "shared/**/*",
@@ -26,7 +26,7 @@
   ],
   "exclude": [
     "node_modules",
+    "GLY/node_modules",
     "dist"
   ]
 }
-

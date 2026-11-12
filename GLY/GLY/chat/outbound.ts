@@ -17,6 +17,7 @@ export type Card =
     }
   | { kind: "payment_receipt"; receiptId: string; amount: Money; merchant: string; status: "captured" | "declined" }
   | { kind: "transactions"; summary: string; rows: { date: string; description: string; amount: Money }[] }
+  | { kind: "action_link"; title: string; label: string; url: string }
   | { kind: "error"; title: string; detail: string };
 
 export type Source = { n: number; title: string; url: string };

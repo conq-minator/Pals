@@ -20,7 +20,11 @@ export function proposalCard(p: PurchaseProposal): Card {
 export function presentEvent(e: TaskEvent, task: TaskRef): { text: string; card?: Card } | null {
   switch (e.type) {
     case "task.progress":
-      return null;
+      // A step the user has to take (e.g. approve on PayPal) is shown; routine progress is not.
+      if (e.data.link) {
+        return { text: e.data.note, card: { kind: "action_link", title: task.summary, label: e.data.link.label, url: e.data.link.url } };
+      }
+      return e.data.show ? { text: e.data.note } : null;
     case "task.failed":
       return {
         text: `I couldn't finish ${task.summary}.`,

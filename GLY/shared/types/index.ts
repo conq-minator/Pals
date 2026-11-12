@@ -109,7 +109,15 @@ export type ProductResult = {
 };
 
 export type TaskEvent =
-  | { eventId: string; taskId: string; at: string; type: "task.progress"; data: { note: string } }
+  | {
+      eventId: string;
+      taskId: string;
+      at: string;
+      type: "task.progress";
+      // `show` puts the note in the chat. `link` adds a button the user must open to carry on
+      // (PULSE uses it for the PayPal approval page). Plain notes only update the task status.
+      data: { note: string; show?: boolean; link?: { label: string; url: string } };
+    }
   | { eventId: string; taskId: string; at: string; type: "task.failed"; data: { reason: string } }
   | { eventId: string; taskId: string; at: string; type: "proposal.ready"; data: PurchaseProposal }
   | {

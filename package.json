@@ -1,19 +1,22 @@
 {
   "name": "pals-monorepo",
   "version": "1.0.0",
-  "description": "PALS — Personal AI Life & Shopping Companions",
+  "description": "PALS \u2014 Personal AI Life & Shopping Companions",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --build",
-    "test": "npm run test:ts",
-    "test:ts": "tsx --test tests/**/*.test.ts",
+    "setup": "npm install && npm install --prefix GLY",
     "start": "tsx shared/orchestrator/server.ts",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && npm run typecheck --prefix GLY",
+    "test": "npm run test:ts && npm run test:gly",
+    "test:ts": "tsx --test tests/**/*.test.ts",
+    "test:system": "tsx --test tests/pals_system.test.ts tests/defender_rules.test.ts",
+    "test:gly": "npm test --prefix GLY",
     "defender": "tsx defender/server.ts",
     "defender:demo": "tsx defender/demo.ts",
     "pulse": "tsx PULSE/server.ts",
-    "pulse:test": "tsx PULSE/test-payment.ts",
-    "typecheck": "tsc --noEmit"
+    "pulse:test": "tsx PULSE/test-payment.ts"
   },
   "keywords": [
     "pals",

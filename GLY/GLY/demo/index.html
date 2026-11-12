@@ -20,6 +20,7 @@
   .card h4 { margin:0 0 6px; } .card .row { display:flex; justify-content:space-between; gap:12px; font-size:14px; padding:2px 0; }
   .card button { margin-top:8px; margin-right:8px; padding:6px 14px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
   .card button.secondary { background:transparent; color:var(--accent); }
+  .card a { display:inline-block; margin-top:8px; padding:6px 14px; border-radius:6px; background:var(--accent); color:#fff; text-decoration:none; }
   .src { font-size:12px; color:var(--muted); }
   form { display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
   input { flex:1; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg); font:inherit; }
@@ -56,6 +57,10 @@ function card(c) {
   }
   else if (c.kind === "payment_receipt") { h.textContent = "Receipt " + c.receiptId; row(c.merchant, money(c.amount)); row("Status", c.status); }
   else if (c.kind === "transactions") { h.textContent = c.summary; c.rows.forEach(r => row(`${r.date} · ${r.description}`, money(r.amount))); }
+  else if (c.kind === "action_link") {
+    h.textContent = c.title;
+    if (/^https?:\/\//i.test(c.url)) { const a = document.createElement("a"); a.href = c.url; a.target = "_blank"; a.rel = "noopener noreferrer"; a.textContent = c.label; d.append(a); }
+  }
   else if (c.kind === "error") { h.textContent = c.title; row(c.detail, ""); }
   log.append(d); log.scrollTop = log.scrollHeight;
 }

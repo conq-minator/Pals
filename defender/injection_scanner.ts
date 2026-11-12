@@ -28,6 +28,18 @@ const PAYMENT_MANIPULATION_PHRASES = [
   'pay to',
 ];
 
+// The fixed phrases above miss simple rewordings ("ignore ALL previous instructions",
+// "approve THIS transaction"), so these patterns allow the usual filler words in between.
+const INSTRUCTION_OVERRIDE_PATTERNS = [
+  /\b(ignore|disregard|forget|override)\s+(?:\w+\s+){0,3}(instructions?|rules|prompts?|guidelines|context)\b/,
+  /\bignore\s+(?:\w+\s+){0,2}(previous|prior|above|earlier|preceding)\b/,
+];
+
+const PAYMENT_MANIPULATION_PATTERNS = [
+  /\b(approve|authori[sz]e|confirm)\s+(?:\w+\s+){0,2}(payment|transaction|purchase|order|transfer)\b/,
+  /\b(skip|bypass|disable)\s+(?:\w+\s+){0,2}(verification|security|checks?|review|defender)\b/,
+];
+
 // Zero-width and bidirectional control character ranges
 const ZERO_WIDTH_CHARS = [
   '\u200B', // ZERO WIDTH SPACE
@@ -118,6 +130,7 @@ function checkInstructionOverride(snippet: string): 'CRITICAL' | null {
   for (const phrase of INSTRUCTION_OVERRIDE_PHRASES) {
     if (lower.includes(phrase)) return 'CRITICAL';
   }
+  if (INSTRUCTION_OVERRIDE_PATTERNS.some((re) => re.test(lower))) return 'CRITICAL';
   return null;
 }
 
@@ -130,6 +143,7 @@ function checkPaymentManipulation(snippet: string): 'CRITICAL' | null {
   for (const phrase of PAYMENT_MANIPULATION_PHRASES) {
     if (lower.includes(phrase)) return 'CRITICAL';
   }
+  if (PAYMENT_MANIPULATION_PATTERNS.some((re) => re.test(lower))) return 'CRITICAL';
   return null;
 }
 

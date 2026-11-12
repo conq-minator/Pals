@@ -72,6 +72,9 @@ export class PulseService {
     callsSystem.registerHandler<{ transactionId: string }, StoredTransaction | null>(
       'PULSE', 'transaction.query', async (env) => this.queryTransaction(env.payload.transactionId)
     );
+    callsSystem.registerHandler<{ userId?: string }, StoredTransaction[]>(
+      'PULSE', 'transaction.list', async (env) => this.listTransactions(env.payload.userId)
+    );
     callsSystem.registerHandler<{ paypalOrderId: string; reason?: string }, StoredTransaction>(
       'PULSE', 'payment.refund', async (env) => this.refundOrder(env.payload.paypalOrderId, env.payload.reason)
     );
@@ -311,7 +314,9 @@ export class PulseService {
     return this.ledger.get(transactionId) ?? null;
   }
 
-  public listTransactions(): StoredTransaction[] {
-    return [...this.ledger.values()];
+  /** All ledger entries, or only one user's when userId is given. */
+  public listTransactions(userId?: string): StoredTransaction[] {
+    const all = [...this.ledger.values()];
+    return userId ? all.filter((tx) => tx.approvalToken.userId === userId) : all;
   }
 }
