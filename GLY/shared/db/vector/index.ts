@@ -22,6 +22,7 @@ export type SearchHit = { chunk: Omit<StoredChunk, "embedding">; score: number }
 export interface VectorStore {
   upsert(chunks: StoredChunk[]): Promise<void>;
   search(embedding: number[], k: number, filter?: SearchFilter): Promise<SearchHit[]>;
+  /** `${id}:${hash}` for every stored chunk, so ingest skips only chunks stored under the same id. */
   existingHashes(): Promise<Set<string>>;
   /** Delete every chunk whose id is not in keepIds. Returns how many were removed. */
   pruneExcept(keepIds: Set<string>): Promise<number>;
@@ -71,7 +72,7 @@ export class InMemoryVectorStore implements VectorStore {
   }
 
   async existingHashes() {
-    return new Set([...this.rows.values()].map((r) => r.hash));
+    return new Set([...this.rows.values()].map((r) => `${r.id}:${r.hash}`));
   }
 
   async pruneExcept(keepIds: Set<string>) {
@@ -160,8 +161,8 @@ export class PgVectorStore implements VectorStore {
   }
 
   async existingHashes() {
-    const { rows } = await this.pool.query("SELECT hash FROM gly_paypal_chunks");
-    return new Set(rows.map((r) => r.hash as string));
+    const { rows } = await this.pool.query("SELECT id, hash FROM gly_paypal_chunks");
+    return new Set(rows.map((r) => `${r.id}:${r.hash}`));
   }
 
   async pruneExcept(keepIds: Set<string>) {

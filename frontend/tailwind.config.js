@@ -32,9 +32,8 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Times New Roman"', 'Times', 'Georgia', 'serif'],
-        serif: ['"Times New Roman"', 'Times', 'Georgia', 'serif'],
-        mono: ['"Times New Roman"', 'Times', 'Georgia', 'serif'],
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       borderRadius: {
         '2xl': '18px',

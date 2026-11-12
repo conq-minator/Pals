@@ -3,20 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  *,
-  *::before,
-  *::after,
-  html,
-  body,
-  input,
-  button,
-  select,
-  textarea {
-    font-family: 'Times New Roman', Times, Georgia, serif !important;
-  }
-
   body {
-    @apply antialiased text-slate-800 bg-[#F5F7FA] dark:bg-slate-950 dark:text-slate-100;
+    @apply antialiased text-slate-800 bg-fintech-slate dark:bg-slate-950 dark:text-slate-100;
   }
 }
 

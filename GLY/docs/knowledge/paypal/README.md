@@ -10,7 +10,7 @@ unofficial here becomes a wrong answer, so keep it to official PayPal sources.
 | `api-reference/` | `npm run fetch:paypal` | 13 PayPal REST APIs, converted from the official OpenAPI specs (Apache-2.0) |
 | `developer-guides/` | `npm run fetch:paypal` | 76 developer.paypal.com pages: REST basics, auth, errors, webhooks, sandbox, disputes and the Resolution Center, refunds, fraud protection, buyer errors, Venmo |
 | `consumer/web/` | `npm run fetch:paypal-consumer` | PayPal's US Privacy Statement (official PDF), plus PayPal help and policy pages: User Agreement, fees, buyer protection, disputes, limitations, security. **Run it on your own computer**: www.paypal.com shows a bot check to cloud servers, so from a server you only get the PDF |
-| `consumer/` | by hand | Anything else you add yourself; kept across fetches |
+| `consumer/` | by hand, committed | Shopper guides written for PALS from PayPal's public help: paying, sending money, refunds, disputes and buyer protection, account and security, Pay Later, currency, balance. Each file needs its own `source` (chunk ids come from it) |
 | `pals-app/` | by hand, committed | How the PALS app itself works: agents, deal ranking, trust score, offers and approval, DEFENDER, FAQ. Keep in sync with the code |
 | `sources.json` | `npm run fetch:paypal` | Where the fetched pages came from and when |
 

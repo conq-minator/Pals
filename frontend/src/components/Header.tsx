@@ -1,120 +1,45 @@
 import React, { useEffect, useState } from 'react';
 import { glyClient, type ConnectionMode } from '../api/glyClient.js';
-import {
-  PayPalMonogram,
-  SunIcon,
-  MoonIcon
-} from './Icons.js';
+import { MoonIcon, SunIcon } from './Icons.js';
+import { Logo } from './Logo.js';
 
-interface HeaderProps {
-  darkMode: boolean;
-  onToggleDarkMode: () => void;
-  onNavClick?: (view: string) => void;
-}
+const LABEL: Record<ConnectionMode, string> = {
+  live_ws: 'Connected',
+  connecting: 'Connecting…',
+  offline: 'Offline',
+  simulated: 'Demo mode (not real)',
+};
+const DOT: Record<ConnectionMode, string> = {
+  live_ws: 'bg-emerald-500',
+  connecting: 'bg-blue-500 animate-pulse',
+  offline: 'bg-rose-500',
+  simulated: 'bg-amber-500',
+};
 
-export const Header: React.FC<HeaderProps> = ({
-  darkMode,
-  onToggleDarkMode,
-  onNavClick
-}) => {
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>('connecting');
-
-  useEffect(() => {
-    return glyClient.onConnectionChange((_connected, mode) => {
-      setConnectionMode(mode);
-    });
-  }, []);
+export const Header: React.FC<{ darkMode: boolean; onToggleDarkMode: () => void }> = ({ darkMode, onToggleDarkMode }) => {
+  const [mode, setMode] = useState<ConnectionMode>('connecting');
+  useEffect(() => glyClient.onConnectionChange((_c, m) => setMode(m)), []);
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 transition-colors">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 py-3.5 flex items-center justify-between">
-        {/* Brand / Logo (PayPal dual-tone monogram + bold wordmark) */}
-        <div className="flex items-center space-x-8">
-          <div
-            className="flex items-center space-x-2.5 cursor-pointer group"
-            onClick={() => onNavClick?.('overview')}
-          >
-            {/* PayPal Dual-Tone Monogram */}
-            <PayPalMonogram className="w-8 h-9 transition-transform group-hover:scale-105" />
-
-            <div className="flex items-baseline space-x-2">
-              <span className="font-black text-2xl tracking-tighter text-[#003087] dark:text-white">
-                Pay<span className="text-[#0079C1]">Pal</span>
-              </span>
-              <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-widest text-[#0079C1] bg-blue-50 dark:bg-blue-950/80 px-2 py-0.5 rounded-full border border-blue-200/50 dark:border-blue-800/40">
-                Agent Guard
-              </span>
-            </div>
-          </div>
-
-          {/* Navigation Links */}
-          <nav className="hidden md:flex items-center space-x-6 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            <button
-              onClick={() => onNavClick?.('overview')}
-              className="hover:text-fintech-bright transition"
-            >
-              Overview
-            </button>
-            <button
-              onClick={() => onNavClick?.('limits')}
-              className="hover:text-fintech-bright transition"
-            >
-              Spending Safeguards
-            </button>
-            <button
-              onClick={() => onNavClick?.('protection')}
-              className="hover:text-fintech-bright transition"
-            >
-              Buyer Protection
-            </button>
-          </nav>
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Logo />
+          <span className="hidden truncate text-sm text-slate-500 sm:inline dark:text-slate-400">Shop and pay with PayPal</span>
         </div>
-
-        {/* Right Action Cluster */}
-        <div className="flex items-center space-x-3">
-          {/* Gateway Status Pill */}
-          <div className="hidden lg:flex items-center space-x-1.5 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full text-xs font-medium text-slate-700 dark:text-slate-300">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                connectionMode === 'live_ws'
-                  ? 'bg-emerald-500 ring-4 ring-emerald-500/20 animate-pulse'
-                  : connectionMode === 'connecting'
-                  ? 'bg-blue-500'
-                  : connectionMode === 'simulated'
-                  ? 'bg-amber-500'
-                  : 'bg-rose-500'
-              }`}
-            />
-            <span>
-              GLY:{' '}
-              {connectionMode === 'live_ws'
-                ? 'Live'
-                : connectionMode === 'connecting'
-                ? 'Connecting…'
-                : connectionMode === 'simulated'
-                ? 'Simulated (not real)'
-                : 'Offline'}
-            </span>
-          </div>
-
-          {/* Theme switcher */}
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className={`h-2 w-2 rounded-full ${DOT[mode]}`} />
+            {LABEL[mode]}
+          </span>
           <button
+            type="button"
             onClick={onToggleDarkMode}
-            aria-label="Toggle theme"
-            className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
+            aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            className="rounded-full p-2 text-slate-600 transition hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
           >
-            {darkMode ? <SunIcon className="w-4 h-4 text-amber-400" /> : <MoonIcon className="w-4 h-4 text-fintech-deep" />}
+            {darkMode ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
           </button>
-
-          {/* Log In / Sign Up pair */}
-          <div className="flex items-center space-x-2">
-            <button className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 hover:text-fintech-bright px-3 py-2 rounded-full transition">
-              Log In
-            </button>
-            <button className="text-xs sm:text-sm font-bold bg-[#003087] hover:bg-[#002466] text-white dark:bg-white dark:text-[#003087] dark:hover:bg-slate-100 px-5 py-2 rounded-full shadow-pill transition">
-              Sign Up
-            </button>
-          </div>
         </div>
       </div>
     </header>

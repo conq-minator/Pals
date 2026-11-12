@@ -1,23 +1,23 @@
 ---
 source: https://github.com/conq-minator/Pals/blob/main/ARB/ranking/multi_factor_ranker.ts
-title: "PALS app guide: how ARB finds and ranks deals"
+title: "PALS app guide: how PALS finds and ranks deals"
 audience: all
 region: global
 topic: pals_app
 docDate: 2026-11-12
 ---
 
-# How ARB finds deals
+# How PALS finds deals
 
-When you ask for a product, ARB searches merchant listings, then opens each product page to confirm the real price, stock and seller where the page allows it. A price that only appears in a search snippet is marked as unverified. Prices quoted as monthly instalments (EMI, "per month") are never treated as the item price.
+When you ask for a product, PALS searches merchant listings, then opens each product page to confirm the real price, stock and seller where the page allows it. A price that only appears in a search snippet is marked as unverified. Prices quoted as monthly instalments (EMI, "per month") are never treated as the item price.
 
-ARB always works with the **landed cost**: the total you would actually pay, including shipping, platform or packaging fees, taxes, and customs or currency conversion for cross-border items. Results over your budget are not shown as matches.
+PALS always works with the **landed cost**: the total you would actually pay, including shipping, platform or packaging fees, taxes, and customs or currency conversion for cross-border items. Results over your budget are not shown as matches.
 
-If you name a merchant ("from Best Buy") ARB only uses that merchant. If you exclude a brand or merchant ("not Samsung", "skip Walmart"), ARB removes it.
+If you name a merchant ("from Best Buy") PALS only uses that merchant. If you exclude a brand or merchant ("not Samsung", "skip Walmart"), PALS removes it.
 
-# How Pali picks the best deal (ranking)
+# How PALS picks the best deal (ranking)
 
-ARB does not simply sort by cheapest. Every listing gets four scores from 0 to 100, and a weighted total decides the order.
+PALS does not simply sort by cheapest. Every listing gets four scores from 0 to 100, and a weighted total decides the order.
 
 | Score | What it measures |
 |---|---|
@@ -33,7 +33,7 @@ The weights depend on what you are buying:
 
 ## Badges
 
-- **Best Value**: the listing with the highest total score. This is ARB's top pick.
+- **Best Value**: the listing with the highest total score. This is PALS's top pick.
 - **Cheapest Option** (or **Lowest Price** if the best value is also the cheapest): the lowest landed cost.
 - **Fastest Delivery**: the quickest delivery, shown only when it is faster than standard delivery.
 
@@ -53,12 +53,12 @@ Every merchant gets a trust score from 0 to 100. It starts at 50 and moves with 
 | Rating of 4.5 or higher with more than 500 reviews | +10; rating below 3.5 is -15 |
 | Domain 5 or more years old | +5; less than 1 year old is -20 |
 
-Tiers: 90 and above is Exemplary, 80 to 89 Trusted, 60 to 79 Moderate, 40 to 59 Suspicious, below 40 Unacceptable. By default ARB only recommends merchants with a trust score of at least 80.
+Tiers: 90 and above is Exemplary, 80 to 89 Trusted, 60 to 79 Moderate, 40 to 59 Suspicious, below 40 Unacceptable. By default PALS only recommends merchants with a trust score of at least 80.
 
 # Coupons and negotiation
 
-ARB looks for public coupon codes and applies the best valid one. It tells you plainly which it was: a public coupon, a real negotiated discount, or no discount because the merchant has fixed pricing. It never labels a coupon as a negotiation.
+PALS looks for public coupon codes and applies the best valid one. It tells you plainly which it was: a public coupon, a real negotiated discount, or no discount because the merchant has fixed pricing. It never labels a coupon as a negotiation.
 
 # Currencies
 
-Prices are converted with live exchange rates when the merchant's currency differs from yours. PayPal cannot charge some currencies, Indian rupees (INR) included. When an offer is in such a currency, ARB re-prices the same item from the same merchant in a currency PayPal supports (US dollars by default) and tells you why before you approve.
+Prices are converted with live exchange rates when the merchant's currency differs from yours. PayPal cannot charge some currencies, Indian rupees (INR) included. When an offer is in such a currency, PALS re-prices the same item from the same merchant in a currency PayPal supports (US dollars by default) and tells you why before you approve.

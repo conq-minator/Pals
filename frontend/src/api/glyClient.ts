@@ -14,6 +14,8 @@ export interface GlyChatResponse {
   paymentResult?: PulsePaymentResponse;
   /** PayPal page the buyer must open to approve the payment (sent by PULSE via GLY). */
   paypalApprovalUrl?: string;
+  /** Products ARB found, shown as cards with a "Get this ready" button. */
+  products?: ProductCardData[];
   references?: Array<{
     documentId: string;
     title: string;
@@ -23,6 +25,8 @@ export interface GlyChatResponse {
     section: string;
   }>;
 }
+
+export type ProductCardData = { title: string; merchant: string; price: { value: number; currency: string }; url: string | null; highlights: string[] };
 
 export type MessageHandler = (response: GlyChatResponse) => void;
 export type TaskEventHandler = (event: TaskLifecycleEvent) => void;
@@ -48,7 +52,13 @@ type ServerEvent =
   | { type: 'error'; text: string };
 
 const SIMULATE = import.meta.env.VITE_PALS_SIMULATE === 'true';
-const money = (m: Money) => `${m.currency} ${m.value.toFixed(2)}`;
+export const money = (m: Money) => {
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: m.currency }).format(m.value);
+  } catch {
+    return `${m.currency} ${m.value.toFixed(2)}`;
+  }
+};
 const domainOf = (merchant: string) => merchant.match(/\(via ([^)]+)\)/)?.[1] ?? merchant.toLowerCase();
 
 /**
@@ -256,13 +266,13 @@ export class GlyClient {
   private handleCard(card: ServerCard) {
     switch (card.kind) {
       case 'product_results': {
-        const lines = card.products.map((p, i) =>
-          `${i + 1}. ${p.title}\n   ${money(p.price)} at ${p.merchant}${p.highlights.length ? ` · ${p.highlights.join(' · ')}` : ''}${p.url ? `\n   ${p.url}` : ''}`
-        );
-        this.emitTask(this.taskEvent('COMPLETED', `ARB found ${card.products.length} options`, 'ARB'));
+        this.emitTask(this.taskEvent('COMPLETED', `Found ${card.products.length} options`, 'ARB'));
         this.emitMessage({
-          replyText: `${card.title}\n\n${lines.join('\n')}\n\nSay "get the first one ready" (or name one) and I'll prepare an offer.`,
-          intent: 'INTENT_SHOPPING_RESEARCH'
+          replyText: card.products.length
+            ? `Here's what I found for **${card.title}**. Pick one and I'll prepare an offer.`
+            : `I couldn't find anything for ${card.title}.`,
+          intent: 'INTENT_SHOPPING_RESEARCH',
+          products: card.products
         });
         return;
       }
@@ -291,13 +301,13 @@ export class GlyClient {
             attempted: !!card.couponApplied,
             successful: !!card.couponApplied,
             savingsAmount: Math.max(0, Math.round((list - final) * 100) / 100),
-            description: card.couponApplied ? `Coupon ${card.couponApplied} applied by ARB.` : 'No coupon available.'
+            description: card.couponApplied ? `Coupon ${card.couponApplied} applied.` : 'No coupon available.'
           },
           merchantTrustScore: 0,
           expiresAt: card.expiresAt
         } as PurchaseProposal;
         this.emitMessage({
-          replyText: `Offer ready: ${card.title} from ${card.merchant} for ${money(card.finalPrice)}. Review it in the authorization card and approve when you're ready.`,
+          replyText: `Your offer is ready: **${card.title}** from ${card.merchant} for **${money(card.finalPrice)}**. Check it in the offer panel and press Approve when you're happy.`,
           intent: 'INTENT_PURCHASE_CONFIRMATION',
           purchaseProposal: proposal
         });
@@ -305,7 +315,7 @@ export class GlyClient {
       }
       case 'action_link':
         this.emitMessage({
-          replyText: `${card.title}: open PayPal to finish paying.\n${card.url}`,
+          replyText: `The security check passed. Press **Pay with PayPal** in the offer panel to finish on PayPal's site.`,
           intent: 'INTENT_PAYPAL_APPROVAL_REQUIRED',
           paypalApprovalUrl: card.url
         });
@@ -332,7 +342,7 @@ export class GlyClient {
         return;
       }
       case 'transactions': {
-        const rows = card.rows.map((r) => `• ${r.date.slice(0, 10)}  ${r.description}  ${money(r.amount)}`);
+        const rows = card.rows.map((r) => `- ${r.date.slice(0, 10)} · ${r.description} · **${money(r.amount)}**`);
         this.emitMessage({ replyText: `${card.summary}${rows.length ? `\n\n${rows.join('\n')}` : ''}`, intent: 'INTENT_TRANSACTIONS' });
         return;
       }

@@ -17,8 +17,16 @@ export async function retrieve(
   if (!hits.length && Object.keys(opts.filter).length) hits = await deps.store.search(vec, opts.topK);
 
   // Small boost for the topic the classifier detected; it re-ranks, never filters.
+  // The PALS app guide only leads when the question is about the app: for PayPal questions it
+  // is pushed down, so PayPal's own docs answer "how do I pay with PayPal?".
+  // Developer pages likewise only lead for API questions, so shoppers get shopper answers.
+  const devQuestion = opts.topic === "api" || opts.filter.audience === "developer";
+  const adjust = (meta: { topic: string; audience: string }) =>
+    (opts.topic && meta.topic === opts.topic ? 0.03 : 0) +
+    (meta.topic === "pals_app" && opts.topic !== "pals_app" ? -0.08 : 0) +
+    (meta.audience === "developer" && !devQuestion ? -0.05 : 0);
   const ranked = hits
-    .map((h) => ({ ...h, score: h.score + (opts.topic && h.chunk.meta.topic === opts.topic ? 0.03 : 0) }))
+    .map((h) => ({ ...h, score: h.score + adjust(h.chunk.meta) }))
     .sort((a, b) => b.score - a.score);
 
   const bestScore = ranked[0]?.score ?? 0;

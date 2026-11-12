@@ -9,11 +9,11 @@ docDate: 2026-11-12
 
 # Offers
 
-When you ask to get an item ready, ARB re-checks the price, stock and merchant against its research and builds an **offer**. The offer card shows the item, the merchant, the list price, the final price you will pay, and any coupon applied.
+When you ask to get an item ready, PALS re-checks the price, stock and merchant against its research and builds an **offer**. The offer panel shows the item, the merchant, the list price, the final price you will pay, and any coupon applied.
 
-An offer is valid for **15 minutes**. After that it expires and cannot be paid; ask Pali to get the item ready again for a fresh price.
+An offer is valid for **15 minutes**. After that it expires and cannot be paid; ask PALS to get the item ready again for a fresh price.
 
-If the final price is over the budget you gave, Pali tells you instead of making an offer.
+If the final price is over the budget you gave, PALS tells you instead of making an offer.
 
 # Approving a payment
 
@@ -23,10 +23,10 @@ Only you can approve your own offers. Another user cannot pay with your offer.
 
 # What happens after you approve
 
-1. **DEFENDER checks the payment first.** If it finds a serious problem it blocks the payment; if it finds a likely problem it holds the payment for manual review. Either way nothing is charged, and Pali tells you the reason.
-2. **PULSE creates the PayPal order** for the exact approved amount.
-3. **You confirm on PayPal.** A Pay with PayPal button appears in the chat. It opens PayPal's own page, where you log in and choose how to pay. PALS never sees your PayPal password or card.
-4. **PULSE completes the payment** when PayPal sends you back, and a receipt appears in the chat with the amount and receipt number.
+1. **PALS runs a security check first.** If it finds a serious problem it blocks the payment; if it finds a likely problem it holds the payment for manual review. Either way nothing is charged, and PALS tells you the reason.
+2. **PALS creates the PayPal order** for the exact approved amount.
+3. **You confirm on PayPal.** A Pay with PayPal button appears in the offer panel. It opens PayPal's own page, where you log in and choose how to pay. PALS never sees your PayPal password or card.
+4. **PALS completes the payment** when PayPal sends you back, and shows the receipt with the amount and receipt number.
 
 If you cancel on PayPal's page, nothing is charged.
 
@@ -37,7 +37,7 @@ Pressing Approve twice, or coming back from PayPal twice, still charges you only
 # When nothing is charged
 
 - The offer expired before you approved it.
-- DEFENDER blocked the payment or held it for review.
+- The security check blocked the payment or held it for review.
 - The security check or the payment service could not be reached. PALS stops the payment rather than skipping a check.
 - You cancelled on PayPal's page, or never confirmed there.
 

@@ -34,10 +34,14 @@ export async function ingestCorpus(opts: {
   const existing = await store.existingHashes();
   const keepIds = new Set<string>();
   const fresh: Omit<StoredChunk, "embedding">[] = [];
+  const sourceOwner = new Map<string, string>(); // chunk ids come from the source URL, so it must be unique
 
   for (const file of await listMarkdown(dir)) {
     try {
       const { header, body } = parseFrontMatter(await readFile(file, "utf8"), file);
+      const owner = sourceOwner.get(header.sourceUrl);
+      if (owner) throw new Error(`${file}: same source as ${owner} (${header.sourceUrl}); give each file its own source, e.g. add #section`);
+      sourceOwner.set(header.sourceUrl, file);
       const chunks = chunkMarkdown(cleanMarkdown(body), header.title);
       report.files++;
       for (const c of chunks) {
@@ -47,7 +51,9 @@ export async function ingestCorpus(opts: {
         const hash = sha1(text);
         keepIds.add(id);
         report.chunks++;
-        if (existing.has(hash)) { report.skipped++; continue; }
+        // Skip only if this exact chunk is stored under this id; a moved chunk must be re-stored,
+        // or the prune below would delete it.
+        if (existing.has(`${id}:${hash}`)) { report.skipped++; continue; }
         fresh.push({ id, hash, text, meta: { ...header, section: c.section, corpusVersion } });
       }
     } catch (err) {

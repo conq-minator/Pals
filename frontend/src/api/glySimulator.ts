@@ -71,7 +71,7 @@ export class GlySimulator {
 
       // 1. Immediate Non-Blocking GLY Acknowledgment
       const initialReply: GlyChatResponse = {
-        replyText: `I've dispatched ARB (ArbitrationPal) to search trusted merchants for top deals under ${currency === 'INR' ? '₹' : '$'}${budget.toLocaleString()}. You can keep chatting with me while ARB gathers verified listings! 🛍️`,
+        replyText: `Looking for deals under ${currency === 'INR' ? '₹' : '$'}${budget.toLocaleString()}…`,
         intent: 'INTENT_SHOPPING_RESEARCH',
         delegatedTaskId: taskId
       };
@@ -89,7 +89,7 @@ export class GlySimulator {
           targetPal: 'ARB',
           status: 'RESEARCHING',
           progressPercent: 45,
-          statusMessage: 'ARB: Scraping authorized merchant catalogs & comparing shipping fees...',
+          statusMessage: 'Comparing merchants…',
           emittedAt: new Date().toISOString()
         };
         this.io.emitTask(researchEvent);
@@ -121,7 +121,7 @@ export class GlySimulator {
             attempted: true,
             successful: true,
             savingsAmount: currency === 'INR' ? 5000 : 50.00,
-            description: 'ARB automatically applied merchant coupon WELCOME50 and free express courier delivery.'
+            description: 'Coupon WELCOME50 applied.'
           },
           merchantTrustScore: 94,
           expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
@@ -134,7 +134,7 @@ export class GlySimulator {
           targetPal: 'ARB',
           status: 'COMPLETED',
           progressPercent: 100,
-          statusMessage: 'ARB completed market arbitration. Optimal purchase proposal ready!',
+          statusMessage: 'Offer ready',
           resultPayload: proposal as unknown as Record<string, unknown>,
           emittedAt: new Date().toISOString()
         };
@@ -142,7 +142,7 @@ export class GlySimulator {
         this.io.emitTask(completedTask);
 
         const proposalReply: GlyChatResponse = {
-          replyText: `ARB found the best price for you! Here is the verified purchase proposal from TechDirect Electronics. I've prepared your Purchase Authorization Card below — please inspect the itemized fees and confirm your digital signature. 🔒`,
+          replyText: `Your offer is ready. Check it in the offer panel.`,
           intent: 'INTENT_PURCHASE_CONFIRMATION',
           purchaseProposal: proposal
         };
