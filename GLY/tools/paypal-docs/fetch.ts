@@ -41,6 +41,12 @@ const INCLUDE = [
   "/disputes/",
   "/platforms/disputes/",
   "/sandbox-testing/",
+  // Customer-facing topics GLY gets asked about (refunds, buyer errors, fraud protection, Venmo)
+  "/platforms/checkout/issue-refund",
+  "/expanded/handle-buyer-errors",
+  "/expanded/fraud-protection",
+  "/reports/fees-reports",
+  "/venmo",
 ];
 
 /** Pages the user listed explicitly. Always fetched (if robots.txt allows). */

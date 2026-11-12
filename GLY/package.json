@@ -14,7 +14,8 @@
     "eval:intent": "node --env-file-if-exists=.env GLY/tests/eval-intent.ts",
     "test": "node --test \"GLY/tests/**/*.test.ts\"",
     "typecheck": "tsc -p .",
-    "fetch:paypal": "node --env-file-if-exists=.env tools/paypal-docs/fetch.ts"
+    "fetch:paypal": "node --env-file-if-exists=.env tools/paypal-docs/fetch.ts",
+    "fetch:paypal-consumer": "node --env-file-if-exists=.env tools/paypal-docs/fetch-consumer.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

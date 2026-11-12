@@ -8,14 +8,17 @@ unofficial here becomes a wrong answer, so keep it to official PayPal sources.
 | Folder | Built by | Contents |
 |---|---|---|
 | `api-reference/` | `npm run fetch:paypal` | 13 PayPal REST APIs, converted from the official OpenAPI specs (Apache-2.0) |
-| `developer-guides/` | `npm run fetch:paypal` | 69 developer.paypal.com pages: REST basics, auth, idempotency, errors, webhooks, sandbox testing, disputes, Orders API |
-| `sources.json` | `npm run fetch:paypal` | Where everything came from and when |
+| `developer-guides/` | `npm run fetch:paypal` | 76 developer.paypal.com pages: REST basics, auth, errors, webhooks, sandbox, disputes and the Resolution Center, refunds, fraud protection, buyer errors, Venmo |
+| `consumer/web/` | `npm run fetch:paypal-consumer` | PayPal's US Privacy Statement (official PDF), plus PayPal help and policy pages: User Agreement, fees, buyer protection, disputes, limitations, security. **Run it on your own computer**: www.paypal.com shows a bot check to cloud servers, so from a server you only get the PDF |
+| `consumer/` | by hand | Anything else you add yourself; kept across fetches |
+| `pals-app/` | by hand, committed | How the PALS app itself works: agents, deal ranking, trust score, offers and approval, DEFENDER, FAQ. Keep in sync with the code |
+| `sources.json` | `npm run fetch:paypal` | Where the fetched pages came from and when |
 
-`npm run fetch:paypal` **replaces** `api-reference/` and `developer-guides/` each time it runs.
-Put pages you add by hand in a separate subfolder (for example `consumer/`) so they're kept.
+`developer-guides/` and `consumer/web/` are PayPal's copyrighted pages, so they are git-ignored: every machine
+builds them once with `npm run knowledge` (repo root), which runs both fetch scripts.
 
-**Not covered yet:** consumer topics (personal fees, buyer protection, account limits). Those
-are on paypal.com help pages, so add them by hand in `consumer/` if GLY needs to answer them.
+`npm run fetch:paypal` **replaces** `api-reference/` and `developer-guides/`; `npm run fetch:paypal-consumer`
+replaces `consumer/web/`. Everything else is kept.
 
 ## File format
 
@@ -41,7 +44,7 @@ docDate: 2026-10-01
 |---|---|
 | `audience` | `consumer`, `developer`, `merchant`, `all` |
 | `region` | a country code such as `US`, or `global` |
-| `topic` | `fees`, `disputes`, `buyer_protection`, `seller_protection`, `refunds`, `account`, `kyc`, `api`, `payments`, `other` |
+| `topic` | `fees`, `disputes`, `buyer_protection`, `seller_protection`, `refunds`, `account`, `kyc`, `api`, `payments`, `pals_app`, `other` |
 | `docDate` | the date you saved the page, `YYYY-MM-DD` |
 
 Don't put comments on the header lines: everything after the colon is read as the value.

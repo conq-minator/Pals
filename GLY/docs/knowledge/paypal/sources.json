@@ -1,5 +1,5 @@
 {
-  "builtAt": "2026-11-12T04:24:41.827Z",
+  "builtAt": "2026-11-12T14:09:43.804Z",
   "specs": "https://github.com/paypal/paypal-rest-api-specifications (Apache-2.0)",
   "guides": {
     "sitemap": "https://developer.paypal.com/sitemap.xml",
@@ -8,7 +8,12 @@
       "/api/disputes",
       "/disputes/",
       "/platforms/disputes/",
-      "/sandbox-testing/"
+      "/sandbox-testing/",
+      "/platforms/checkout/issue-refund",
+      "/expanded/handle-buyer-errors",
+      "/expanded/fraud-protection",
+      "/reports/fees-reports",
+      "/venmo"
     ],
     "seeds": [
       "https://developer.paypal.com/docs/",
@@ -21,6 +26,6 @@
   },
   "counts": {
     "specs": 13,
-    "guides": 69
+    "guides": 76
   }
 }

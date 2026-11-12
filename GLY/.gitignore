@@ -37,6 +37,8 @@ models/
 # so they're kept out of the repo; rebuild with `npm run fetch:paypal`.
 # (api-reference/ comes from Apache-2.0 specs and IS committed.)
 docs/knowledge/paypal/developer-guides/
+# Same for PayPal's consumer help pages and PDFs; rebuild with `npm run fetch:paypal-consumer`.
+docs/knowledge/paypal/consumer/web/
 
 # Build output and coverage, if added later
 dist/

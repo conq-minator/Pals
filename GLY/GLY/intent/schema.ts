@@ -24,6 +24,7 @@ export const PAYPAL_TOPICS = [
   "kyc",
   "api",
   "payments",
+  "pals_app", // how this app (Pali, GLY, ARB, DEFENDER, PULSE) works
   "other",
 ] as const;
 
