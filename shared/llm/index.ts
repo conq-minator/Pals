@@ -115,15 +115,16 @@ export class FetchLLMProvider implements ILLMProvider {
     }
 
     if (this.providerType === 'gemini') {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       const contents = messages.map(m => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }]
       }));
 
+      // Key goes in a header, not the URL: URLs end up in logs and proxies.
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
         body: JSON.stringify({
           contents,
           generationConfig: {
