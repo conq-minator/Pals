@@ -13,6 +13,7 @@ import { classifyIntent } from "../intent/classify.ts";
 import { route, type RouteDecision } from "../intent/router.ts";
 import type { IntentResult } from "../intent/schema.ts";
 import { answerPaypalQuestion } from "../rag/answer.ts";
+import { retrieve } from "../rag/retrieve.ts";
 import { ackText, buildPayload } from "../delegation/payloads.ts";
 import { Delegator } from "../delegation/send.ts";
 import { ApprovalService } from "../events/approval.ts";
@@ -37,6 +38,11 @@ export const LLM_DOWN =
 
 const SMALLTALK =
   "Happy to help! I can explain how PayPal works, find and compare products for you, or check your transactions.";
+
+export const LLM_DOWN_PASSAGE = "My AI service is busy right now, so here is the most relevant part of the PayPal help I have:";
+
+/** Looks like a question (not a shopping or payment request), so a help passage can answer it. */
+const QUESTION = /\?\s*$|^(how|what|why|when|where|who|which|can|could|do|does|is|are|will|should)\b/i;
 
 export class GlyService {
   readonly sessions = new SessionStore();
@@ -71,6 +77,39 @@ export class GlyService {
   }
 
   // ---------------- P1: Message In ----------------
+
+  /**
+   * Fallback when every model is unavailable: if the message is a question and the knowledge
+   * base has a confident match, show that passage with its source. Returns true if it answered.
+   */
+  private async answerWithoutLlm(session: Session, question: string): Promise<boolean> {
+    if (!QUESTION.test(question.trim())) return false;
+    try {
+      const found = await retrieve(this.deps.rag, question, {
+        filter: {},
+        topic: null,
+        topK: this.deps.config.ragTopK,
+        scoreMin: this.deps.config.ragScoreMin ?? this.deps.rag.embedder.suggestedScoreMin ?? 0.5,
+      });
+      const top = found.hits[0];
+      if (!found.confident || !top) return false;
+      // Chunk text starts with "Title > Section" and a blank line; keep the body, cut at a sentence.
+      let body = top.chunk.text.replace(/^[^\n]*\n\n/, "").trim();
+      if (body.length > 900) body = body.slice(0, 900).replace(/[^.!?]*$/, "").trim() || body.slice(0, 900) + "…";
+      const text = `${LLM_DOWN_PASSAGE}\n\n${body} [1]`;
+      const streamId = randomUUID();
+      this.delivery.deliver(session.sessionId, { type: "token", streamId, text });
+      this.delivery.deliver(session.sessionId, {
+        type: "stream_end",
+        streamId,
+        sources: [{ n: 1, title: `${top.chunk.meta.title} — ${top.chunk.meta.section}`, url: top.chunk.meta.sourceUrl }],
+      });
+      this.sessions.addTurn(session, "assistant", text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   async handleUserMessage(input: { sessionId: string; userId: string; text: string }): Promise<void> {
     const correlationId = randomUUID();
@@ -111,9 +150,10 @@ export class GlyService {
         this.delivery.deliver(session.sessionId, { type: "status", text: note });
       });
       if (intent.llmUnavailable) {
-        const text = LLM_DOWN;
-        this.delivery.deliver(session.sessionId, { type: "error", text });
-        this.sessions.addTurn(session, "assistant", text);
+        // Questions can still be answered from the knowledge base, just without the AI's wording.
+        if (await this.answerWithoutLlm(session, text)) return;
+        this.delivery.deliver(session.sessionId, { type: "error", text: LLM_DOWN });
+        this.sessions.addTurn(session, "assistant", LLM_DOWN);
         return;
       }
       const decision = route(intent, { text, recentTasks: msg.recentTasks, confidenceMin: this.deps.config.intentConfidenceMin });

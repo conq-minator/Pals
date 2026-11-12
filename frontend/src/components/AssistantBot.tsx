@@ -30,6 +30,7 @@ export const AssistantBot: React.FC<{ onProposalReceived: (p: PurchaseProposal) 
   useEffect(() => {
     const offMsg = glyClient.onMessage((res: GlyChatResponse) => {
       setWaiting(false);
+      setTask(null); // a reply (or an error) ends any "retrying…" status
       if (res.purchaseProposal) onProposalReceived(res.purchaseProposal);
       setMessages((prev) => [
         ...prev,
