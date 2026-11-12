@@ -7,11 +7,20 @@ import { ARBProductVerifier } from './product_verifier.js';
 import { ARBCanonicalIdentity } from '../extractors/canonical_product.js';
 import { ARBLandedCostCalculator } from '../pricing/landed_cost.js';
 
+export interface SearchCandidate {
+  url: string;
+  rawTitle: string;
+  cleanTitle: string;
+  snippet: string;
+}
+
 /**
  * ARBWebCrawler
  * Two-stage autonomous live e-commerce search crawler & product verifier.
  *
- * Stage 1 (Discover): Searches multi-merchant indexes for candidate product URLs.
+ * Stage 1 (Discover): Searches multi-merchant indexes for candidate product URLs
+ * via configured Search APIs (Brave, Serper, SerpAPI, Google Custom Search) with
+ * fallback to DuckDuckGo HTML scraping.
  * Stage 2 (Verify): Inspects candidate product pages, extracts authentic schema.org
  * JSON-LD / OpenGraph data, filters false EMI rates, computes real landed costs
  * (including shipping thresholds, packaging, platform fees, and pincode rules),
@@ -22,6 +31,272 @@ export class ARBWebCrawler {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
   ];
+
+  /**
+   * Discovers candidate product URLs via configured Search APIs (Brave, Serper, SerpAPI, Google Custom Search)
+   * with automatic fallback to DuckDuckGo HTML scraping.
+   */
+  private static async discoverCandidates(
+    task: { query: string; region: 'IN' | 'US' },
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    // 1. Brave Search API (free tier at https://brave.com/search/api/)
+    const braveKey = process.env.BRAVE_SEARCH_API_KEY;
+    if (braveKey) {
+      const candidates = await this.discoverWithBrave(task, braveKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 2. Serper Google Search (free tier at https://serper.dev)
+    const serperKey = process.env.SERPER_API_KEY || (process.env.SERP_API_KEY && !process.env.SERPAPI_API_KEY ? process.env.SERP_API_KEY : undefined);
+    if (serperKey) {
+      const candidates = await this.discoverWithSerper(task, serperKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 3. SerpAPI (https://serpapi.com)
+    const serpApiKey = process.env.SERPAPI_API_KEY;
+    if (serpApiKey) {
+      const candidates = await this.discoverWithSerpApi(task, serpApiKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 4. Google Custom Search JSON API (https://developers.google.com/custom-search/v1/overview)
+    const googleKey = process.env.GOOGLE_SEARCH_API_KEY;
+    const googleCx = process.env.GOOGLE_SEARCH_CX;
+    if (googleKey && googleCx) {
+      const candidates = await this.discoverWithGoogle(task, googleKey, googleCx, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
+    // 5. DuckDuckGo HTML fallback
+    return this.discoverWithDuckDuckGo(task, timeoutMs);
+  }
+
+  private static async discoverWithBrave(
+    task: { query: string; region: 'IN' | 'US' },
+    apiKey: string,
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const countryParam = task.region === 'IN' ? '&country=in' : '&country=us';
+      const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(task.query)}&count=10${countryParam}`;
+      const res = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': apiKey
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+
+      const data = await res.json() as any;
+      const webResults = data?.web?.results;
+      if (!Array.isArray(webResults)) return [];
+
+      return webResults.map((item: any) => {
+        const rawTitle = (item.title || '').replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+        return {
+          url: item.url,
+          rawTitle,
+          cleanTitle,
+          snippet: (item.description || '').replace(/<[^>]+>/g, '').trim()
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private static async discoverWithSerper(
+    task: { query: string; region: 'IN' | 'US' },
+    apiKey: string,
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const res = await fetch('https://google.serper.dev/search', {
+        method: 'POST',
+        headers: {
+          'X-API-KEY': apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          q: task.query,
+          gl: task.region === 'IN' ? 'in' : 'us',
+          hl: 'en',
+          num: 10
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+
+      const data = await res.json() as any;
+      const organic = data?.organic;
+      if (!Array.isArray(organic)) return [];
+
+      return organic.map((item: any) => {
+        const rawTitle = (item.title || '').replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+        return {
+          url: item.link,
+          rawTitle,
+          cleanTitle,
+          snippet: (item.snippet || '').replace(/<[^>]+>/g, '').trim()
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private static async discoverWithSerpApi(
+    task: { query: string; region: 'IN' | 'US' },
+    apiKey: string,
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const gl = task.region === 'IN' ? 'in' : 'us';
+      const url = `https://serpapi.com/search.json?engine=google&q=${encodeURIComponent(task.query)}&gl=${gl}&hl=en&num=10&api_key=${apiKey}`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+
+      const data = await res.json() as any;
+      const organic = data?.organic_results;
+      if (!Array.isArray(organic)) return [];
+
+      return organic.map((item: any) => {
+        const rawTitle = (item.title || '').replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+        return {
+          url: item.link,
+          rawTitle,
+          cleanTitle,
+          snippet: (item.snippet || '').replace(/<[^>]+>/g, '').trim()
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private static async discoverWithGoogle(
+    task: { query: string; region: 'IN' | 'US' },
+    apiKey: string,
+    cx: string,
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const glParam = task.region === 'IN' ? '&gl=in' : '&gl=us';
+      const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(apiKey)}&cx=${encodeURIComponent(cx)}&q=${encodeURIComponent(task.query)}&num=10${glParam}`;
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+
+      const data = await res.json() as any;
+      const items = data?.items;
+      if (!Array.isArray(items)) return [];
+
+      return items.map((item: any) => {
+        const rawTitle = (item.title || '').replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+        return {
+          url: item.link,
+          rawTitle,
+          cleanTitle,
+          snippet: (item.snippet || '').replace(/<[^>]+>/g, '').trim()
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private static async discoverWithDuckDuckGo(
+    task: { query: string; region: 'IN' | 'US' },
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      const params = new URLSearchParams();
+      params.append('q', task.query);
+      params.append('b', '');
+      if (task.region === 'IN') {
+        params.append('kl', 'in-en');
+      }
+
+      const res = await fetch('https://html.duckduckgo.com/html/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': this.USER_AGENTS[Math.floor(Math.random() * this.USER_AGENTS.length)]
+        },
+        body: params.toString(),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+
+      if (!res.ok) return [];
+      const html = await res.text();
+
+      const candidates: SearchCandidate[] = [];
+      const blocks = html.split('<div class="result results_links results_links_deep web-result');
+      for (let i = 1; i < blocks.length; i++) {
+        const block = blocks[i];
+
+        const titleMatch = block.match(/<h2 class="result__title">[\s\S]*?<a rel="nofollow" class="result__a" href="([^"]+)">([\s\S]*?)<\/a>/);
+        if (!titleMatch) continue;
+
+        let rawUrl = titleMatch[1];
+        let directUrl = rawUrl;
+        if (rawUrl.includes('uddg=')) {
+          try {
+            directUrl = decodeURIComponent(rawUrl.split('uddg=')[1].split('&')[0]);
+          } catch {}
+        }
+
+        const rawTitle = titleMatch[2].replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+
+        const snippetMatch = block.match(/class="result__snippet[^>]*>([\s\S]*?)<\/a>/);
+        const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+
+        candidates.push({
+          url: directUrl,
+          rawTitle,
+          cleanTitle,
+          snippet
+        });
+      }
+      return candidates;
+    } catch {
+      return [];
+    }
+  }
 
   /**
    * Executes two-stage live crawl & verification across target merchants.
@@ -65,60 +340,18 @@ export class ARBWebCrawler {
 
     const crawlPromises = searchTasks.map(async task => {
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const candidates = await this.discoverCandidates(task, timeoutMs);
 
-        const params = new URLSearchParams();
-        params.append('q', task.query);
-        params.append('b', '');
-        if (task.region === 'IN') {
-          params.append('kl', 'in-en');
-        }
-
-        const res = await fetch('https://html.duckduckgo.com/html/', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': this.USER_AGENTS[Math.floor(Math.random() * this.USER_AGENTS.length)]
-          },
-          body: params.toString(),
-          signal: controller.signal
-        });
-        clearTimeout(timer);
-
-        if (!res.ok) return;
-        const html = await res.text();
-
-        // Split HTML by candidate result item blocks
-        const blocks = html.split('<div class="result results_links results_links_deep web-result');
-        for (let i = 1; i < blocks.length; i++) {
-          const block = blocks[i];
-
-          // 1. Extract Candidate Title & Direct Link
-          const titleMatch = block.match(/<h2 class="result__title">[\s\S]*?<a rel="nofollow" class="result__a" href="([^"]+)">([\s\S]*?)<\/a>/);
-          if (!titleMatch) continue;
-
-          let rawUrl = titleMatch[1];
-          let directUrl = rawUrl;
-          if (rawUrl.includes('uddg=')) {
-            try {
-              directUrl = decodeURIComponent(rawUrl.split('uddg=')[1].split('&')[0]);
-            } catch {}
-          }
-
+        for (const candidate of candidates) {
+          const directUrl = candidate.url;
           if (seenUrls.has(directUrl)) continue;
           seenUrls.add(directUrl);
 
-          const rawTitle = titleMatch[2].replace(/<[^>]+>/g, '').trim();
-          const cleanTitle = rawTitle
-            .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
-            .trim();
+          const rawTitle = candidate.rawTitle;
+          const cleanTitle = candidate.cleanTitle;
+          const snippet = candidate.snippet;
 
-          // 2. Extract Snippet
-          const snippetMatch = block.match(/class="result__snippet[^>]*>([\s\S]*?)<\/a>/);
-          const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-
-          // 3. Extract Merchant Domain
+          // Extract Merchant Domain
           let domain = 'unknown.com';
           try {
             domain = new URL(directUrl).hostname.replace(/^www\./, '');

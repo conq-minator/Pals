@@ -90,9 +90,9 @@ export class ARBAutonomousMarketAgent implements IMerchantProvider {
     const results: MerchantListing[] = [];
     const seenKeys = new Set<string>();
 
-    // 2. Run autonomous live web crawler in background (with 2000ms timeout)
+    // 2. Run autonomous live web crawler in background (with 3500ms timeout)
     try {
-      const liveListings = await ARBWebCrawler.crawl(payload, 2000);
+      const liveListings = await ARBWebCrawler.crawl(payload, 3500);
       for (const item of liveListings) {
         const identity = ARBCanonicalIdentity.extractIdentity(item.productTitle, undefined, undefined, item.productUrl);
         const dedupeKey = `${item.merchantDomain}:${identity.canonicalKey}`;
