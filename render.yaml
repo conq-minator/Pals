@@ -6,7 +6,7 @@ services:
     runtime: docker
     # The free plan (512 MB, sleeps after 15 idle minutes) can run out of memory with the
     # embedding model loaded. Starter keeps it awake and has room.
-    plan: starter
+    plan: free
     branch: main
     autoDeploy: true
     healthCheckPath: /healthz
