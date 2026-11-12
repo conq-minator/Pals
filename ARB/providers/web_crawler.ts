@@ -33,13 +33,20 @@ export class ARBWebCrawler {
   ];
 
   /**
-   * Discovers candidate product URLs via configured Search APIs (Brave, Serper, SerpAPI, Google Custom Search)
+   * Discovers candidate product URLs via configured Search APIs (Bright Data, Brave, Serper, SerpAPI, Google Custom Search)
    * with automatic fallback to DuckDuckGo HTML scraping.
    */
   private static async discoverCandidates(
     task: { query: string; region: 'IN' | 'US' },
     timeoutMs: number
   ): Promise<SearchCandidate[]> {
+    // 0. Bright Data Web Unlocker / SERP (https://brightdata.com)
+    const brightDataKey = process.env.BRIGHTDATA_API_KEY;
+    if (brightDataKey) {
+      const candidates = await this.discoverWithBrightData(task, brightDataKey, timeoutMs);
+      if (candidates.length > 0) return candidates;
+    }
+
     // 1. Brave Search API (free tier at https://brave.com/search/api/)
     const braveKey = process.env.BRAVE_SEARCH_API_KEY;
     if (braveKey) {
@@ -71,6 +78,57 @@ export class ARBWebCrawler {
 
     // 5. DuckDuckGo HTML fallback
     return this.discoverWithDuckDuckGo(task, timeoutMs);
+  }
+
+  private static async discoverWithBrightData(
+    task: { query: string; region: 'IN' | 'US' },
+    apiKey: string,
+    timeoutMs: number
+  ): Promise<SearchCandidate[]> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const zone = process.env.BRIGHTDATA_ZONE || 'cli_unlocker';
+      const googleDomain = task.region === 'IN' ? 'google.co.in' : 'google.com';
+      const searchUrl = `https://www.${googleDomain}/search?q=${encodeURIComponent(task.query)}&gl=${task.region === 'IN' ? 'in' : 'us'}&hl=en`;
+      const res = await fetch('https://api.brightdata.com/request', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          zone,
+          url: searchUrl,
+          format: 'raw'
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!res.ok) return [];
+
+      const html = await res.text();
+      const candidates: SearchCandidate[] = [];
+      const linkRegex = /<a[^>]+href="(https:\/\/[^"&?]+)"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>/gi;
+      let match: RegExpExecArray | null;
+      while ((match = linkRegex.exec(html)) !== null) {
+        const link = match[1];
+        if (link.includes('google.com') || link.includes('google.co.in')) continue;
+        const rawTitle = match[2].replace(/<[^>]+>/g, '').trim();
+        const cleanTitle = rawTitle
+          .replace(/\s*[-|]\s*(?:Amazon\.in|Flipkart|Croma|Reliance Digital|Walmart|Best Buy)[\s\S]*$/i, '')
+          .trim();
+        candidates.push({
+          url: link,
+          rawTitle,
+          cleanTitle,
+          snippet: ''
+        });
+      }
+      return candidates;
+    } catch {
+      return [];
+    }
   }
 
   private static async discoverWithBrave(

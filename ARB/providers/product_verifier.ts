@@ -377,16 +377,47 @@ export class ARBProductVerifier {
       });
       clearTimeout(timer);
 
-      if (!response.ok) return null;
-      const html = await response.text();
-
-      const verified = this.extractFromHtml(html, url);
-      if (verified) {
-        this.setCache(url, verified, category);
-        return verified;
+      if (response.ok) {
+        const html = await response.text();
+        const verified = this.extractFromHtml(html, url);
+        if (verified) {
+          this.setCache(url, verified, category);
+          return verified;
+        }
       }
     } catch {
       // Fetch aborted or network blocked; handled gracefully
+    }
+
+    // 3. Fallback: Bright Data Web Unlocker (if configured and direct fetch was blocked)
+    if (process.env.BRIGHTDATA_API_KEY) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const zone = process.env.BRIGHTDATA_ZONE || 'cli_unlocker';
+        const bdRes = await fetch('https://api.brightdata.com/request', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.BRIGHTDATA_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            zone,
+            url,
+            format: 'raw'
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+        if (bdRes.ok) {
+          const html = await bdRes.text();
+          const verified = this.extractFromHtml(html, url);
+          if (verified) {
+            this.setCache(url, verified, category);
+            return verified;
+          }
+        }
+      } catch {}
     }
 
     return null;
