@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after,
+  html,
+  body,
+  input,
+  button,
+  select,
+  textarea {
+    font-family: 'Times New Roman', Times, Georgia, serif !important;
+  }
+
+  body {
+    @apply antialiased text-slate-800 bg-[#F5F7FA] dark:bg-slate-950 dark:text-slate-100;
+  }
+}
+
+/* Custom scrollbar for chat dialog */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.25);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.45);
+}
+
+/* Soft transition for hover lifts */
+.card-lift {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-lift:hover {
+  transform: translateY(-3px);
+}
+
+/* Gradient mesh background elements */
+.fintech-mesh-bg {
+  background: linear-gradient(135deg, #0070E0 0%, #009CDE 45%, #0056B3 100%);
+}
+
+.dark .fintech-mesh-bg {
+  background: linear-gradient(135deg, #001C3D 0%, #002C6C 50%, #001124 100%);
+}
