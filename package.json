@@ -5,8 +5,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup": "npm install && npm install --prefix GLY",
+    "setup": "npm install && npm install --prefix GLY && npm install --prefix frontend",
     "start": "tsx shared/orchestrator/server.ts",
+    "frontend": "npm run dev --prefix frontend",
+    "frontend:build": "npm run build --prefix frontend",
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit && npm run typecheck --prefix GLY",
     "test": "npm run test:ts && npm run test:gly",

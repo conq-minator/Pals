@@ -107,7 +107,9 @@ export class GlyService {
 
     try {
       // P2: label it, then plain code picks the path.
-      const intent = await classifyIntent(this.deps.llm, msg, log.child({ part: "P2" }));
+      const intent = await classifyIntent(this.deps.llm, msg, log.child({ part: "P2" }), (note) => {
+        this.delivery.deliver(session.sessionId, { type: "status", text: note });
+      });
       if (intent.llmUnavailable) {
         const text = LLM_DOWN;
         this.delivery.deliver(session.sessionId, { type: "error", text });

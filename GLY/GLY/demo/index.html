@@ -16,6 +16,7 @@
   .me { align-self:flex-end; background:var(--accent); color:#fff; }
   .gly { align-self:flex-start; background:var(--card); border:1px solid var(--line); }
   .err { align-self:flex-start; color:var(--warn); }
+  .status { align-self:flex-start; font-style:italic; color:var(--muted); font-size:13px; }
   .card { align-self:flex-start; background:var(--card); border:1px solid var(--accent); border-radius:10px; padding:12px; max-width:520px; }
   .card h4 { margin:0 0 6px; } .card .row { display:flex; justify-content:space-between; gap:12px; font-size:14px; padding:2px 0; }
   .card button { margin-top:8px; margin-right:8px; padding:6px 14px; border-radius:6px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
@@ -68,6 +69,7 @@ function card(c) {
 ws.onmessage = (ev) => {
   const e = JSON.parse(ev.data);
   if (e.type === "message") add("gly", e.text);
+  else if (e.type === "status") add("status", e.text);
   else if (e.type === "error") add("err", e.text);
   else if (e.type === "token") { (streams[e.streamId] ||= add("gly", "")).textContent += e.text; log.scrollTop = log.scrollHeight; }
   else if (e.type === "stream_end") {

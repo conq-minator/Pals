@@ -40,7 +40,7 @@ export function presentEvent(e: TaskEvent, task: TaskRef): { text: string; card?
               text: `Found ${d.products.length} options for ${task.summary}.`,
               card: { kind: "product_results", taskId: task.taskId, title: task.summary, products: d.products },
             }
-          : { text: `I couldn't find matching live listings for "${task.summary}". (If live web search is unavailable, try sample queries like "mechanical keyboard", "headphones", "laptop", or "pizza" to test the purchase flow.)` };
+          : { text: `I couldn't find anything matching "${task.summary}". (If live web search is unavailable, try sample queries like "mechanical keyboard", "headphones", "laptop", or "pizza" to test the purchase flow.)` };
       }
       if (d.kind === "payment") {
         return {

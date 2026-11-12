@@ -27,6 +27,7 @@ export type OutboundEvent =
   | { type: "token"; streamId: string; text: string }
   | { type: "stream_end"; streamId: string; sources: Source[] }
   | { type: "card"; card: Card }
+  | { type: "status"; text: string }
   | { type: "error"; text: string };
 
 type Sender = (event: OutboundEvent) => void;

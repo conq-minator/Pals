@@ -114,8 +114,11 @@ export class GlyClient {
         try {
           const data = JSON.parse(event.data);
           // Handle chat replies
-          if (data.event === 'chat:reply' || data.replyText) {
-            const chatRes = data.payload || data;
+          if (data.event === 'chat:reply' || data.replyText || data.type === 'message' || data.type === 'status') {
+            const chatRes = data.payload || {
+              replyText: data.text || data.replyText || '',
+              intent: data.intent || (data.type === 'status' ? 'status' : 'chat')
+            };
             for (const listener of this.messageListeners) {
               listener(chatRes);
             }

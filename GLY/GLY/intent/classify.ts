@@ -13,7 +13,12 @@ import { IntentResultSchema, UNCLEAR_RESULT, type IntentResult } from "./schema.
  */
 export type ClassifyResult = IntentResult & { llmUnavailable?: boolean };
 
-export async function classifyIntent(llm: LlmGateway, msg: InboundMessage, log: Logger): Promise<ClassifyResult> {
+export async function classifyIntent(
+  llm: LlmGateway,
+  msg: InboundMessage,
+  log: Logger,
+  onRetry?: (note: string) => void
+): Promise<ClassifyResult> {
   const prompt = buildIntentPrompt(msg);
   let errors = 0;
   let lastError = "";
@@ -28,10 +33,16 @@ export async function classifyIntent(llm: LlmGateway, msg: InboundMessage, log: 
         return result;
       }
       log.warn("intent output failed validation", { attempt, issues: parsed.error.issues.slice(0, 3).map((i) => i.message) });
+      if (attempt === 1 && onRetry) {
+        onRetry("One moment, retrying...");
+      }
     } catch (err) {
       errors++;
       lastError = err instanceof Error ? err.message : String(err);
       log.warn("intent classification error", { attempt, error: lastError });
+      if (attempt === 1 && onRetry) {
+        onRetry("One moment, retrying...");
+      }
     }
   }
 

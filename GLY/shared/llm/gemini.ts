@@ -54,8 +54,8 @@ export class GeminiLlm implements LlmGateway {
     }
   }
 
-  async structured<S extends z.ZodType>(prompt: LlmPrompt, schema: S): Promise<z.infer<S> | null> {
-    const res = await this.ai.models.generateContent({
+  async structured<S extends z.ZodType>(prompt: LlmPrompt, schema: S, timeoutMs: number = 10_000): Promise<z.infer<S> | null> {
+    const callPromise = this.ai.models.generateContent({
       model: this.opts.structuredModel,
       contents: prompt.user,
       config: {
@@ -65,6 +65,19 @@ export class GeminiLlm implements LlmGateway {
         maxOutputTokens: 2048,
       },
     });
+
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Gemini request timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+
+    let res: GenerateContentResponse;
+    try {
+      res = await Promise.race([callPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
     if (blocked(res) || !res.text) return null;
     try {
       // The caller validates with Zod again; this only turns text into an object.
@@ -74,12 +87,25 @@ export class GeminiLlm implements LlmGateway {
     }
   }
 
-  async streamText(prompt: LlmPrompt, onText: (delta: string) => void): Promise<string | null> {
-    const stream = await this.ai.models.generateContentStream({
+  async streamText(prompt: LlmPrompt, onText: (delta: string) => void, timeoutMs: number = 15_000): Promise<string | null> {
+    const streamPromise = this.ai.models.generateContentStream({
       model: this.opts.answerModel,
       contents: prompt.user,
       config: { systemInstruction: prompt.system, maxOutputTokens: 8000 },
     });
+
+    let timer: NodeJS.Timeout | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Gemini stream timed out after ${timeoutMs}ms`)), timeoutMs);
+    });
+
+    let stream: any;
+    try {
+      stream = await Promise.race([streamPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
     let text = "";
     for await (const chunk of stream) {
       if (blocked(chunk)) return text ? text : null;
