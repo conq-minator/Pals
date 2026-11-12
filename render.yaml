@@ -1,0 +1,36 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# In Render: New > Blueprint > pick this repo. Every push to main then redeploys the site.
+services:
+  - type: web
+    name: pals
+    runtime: docker
+    # The free plan (512 MB, sleeps after 15 idle minutes) can run out of memory with the
+    # embedding model loaded. Starter keeps it awake and has room.
+    plan: starter
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      # Fill these in Render's dashboard. sync: false = Render asks you, nothing is stored here.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_MODE
+        value: sandbox
+      - key: SERPER_API_KEY
+        sync: false
+      - key: BRIGHTDATA_API_KEY
+        sync: false
+      - key: BRIGHTDATA_ZONE
+        sync: false
+      # Signs approval tokens; must stay the same across restarts.
+      - key: PALS_APPROVAL_SECRET
+        generateValue: true
+      # Paid-scraping caps per server start (see .env.example).
+      - key: PALS_SERPER_MAX_CALLS
+        value: "30"
+      - key: PALS_BRIGHTDATA_MAX_CALLS
+        value: "10"

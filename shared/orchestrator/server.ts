@@ -30,8 +30,10 @@ import { ingestCorpus } from '../../GLY/GLY/rag/ingest/ingest.ts';
 
 const glyRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../GLY');
 const log = createLogger('PALS');
-const config = loadConfig({ port: Number(process.env.PALS_API_PORT ?? process.env.GLY_PORT ?? 8787) });
-const publicUrl = process.env.PALS_PUBLIC_URL ?? `http://localhost:${config.port}`;
+// PORT is what hosting platforms (Render, Railway, Fly, Heroku) assign.
+const config = loadConfig({ port: Number(process.env.PORT ?? process.env.PALS_API_PORT ?? process.env.GLY_PORT ?? 8787) });
+// Render sets RENDER_EXTERNAL_URL to the site's public address.
+const publicUrl = (process.env.PALS_PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `http://localhost:${config.port}`).replace(/\/$/, '');
 
 // ---- The background PALs. Each registers its own actions with calls/. ----
 new ArbService();

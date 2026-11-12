@@ -1,0 +1,13 @@
+**/node_modules
+**/dist
+.cache
+GLY/.cache
+.git
+.env
+**/.env
+**/.env.*
+!**/.env.example
+*.patch
+*.bundle
+GLY/docs/knowledge/paypal/developer-guides
+GLY/docs/knowledge/paypal/consumer/web
